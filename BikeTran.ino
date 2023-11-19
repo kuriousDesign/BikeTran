@@ -214,15 +214,18 @@ void loop()
     // 4. Reduce motor speed to turtle speed and keep turning in neg dir until encoder value stops changing (go to next step), other wise if encoder value is more than 1 rev from recorded value in prev step, then trigger error
 
     // 5. Stop motor and zero the encoder
+    digitalWrite(PWM_PIN, LOW);
+    digitalWrite(DIR_PIN, LOW);
+    delay(200);
 
     analogWrite(PIN_SOL_STOPPER, 254);
-    digitalWrite(DIR_PIN, LOW);
+
     delay(100);
     analogWrite(PIN_SOL_STOPPER, 229);
     analogWrite(PWM_PIN, 255);
     delay(70);
     digitalWrite(PIN_SOL_STOPPER, LOW);
-    analogWrite(PWM_PIN, 65);
+    analogWrite(PWM_PIN, 75);
     delay(600);
     digitalWrite(PWM_PIN, LOW);
     // delay(1000);
