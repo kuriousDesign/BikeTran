@@ -1,4 +1,4 @@
-bool FLIP_POSITIVE = true; // This should normally be false, just used for testing directional differences in motor cmd
+bool FLIP_POSITIVE = false; // This should normally be false, just used for testing directional differences in motor cmd
 
 #include "ISerial.h"
 #include "Encoder.h"
