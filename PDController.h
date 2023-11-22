@@ -14,31 +14,7 @@ public:
     double error;
     double errorChange;
     double speedControl;
-    double calculateModifiedSpeedControl(double currentPosition, double targetPosition, double currentVelocity)
-    {
-        // Calculate the error (position error)
-        error = targetPosition - currentPosition;
 
-        // Calculate the change in error (velocity)
-        errorChange = error - prevError;
-
-        // Calculate the speed control parameter (output)
-        speedControl = Kp * error + Kd * errorChange;
-
-        // Constrain the speed control parameter between -100% and 100%
-        if (speedControl > 100.0)
-        {
-            speedControl = 100.0;
-        }
-        else if (speedControl < -100.0)
-        {
-            speedControl = -100.0;
-        }
-
-        // Update the previous error
-        prevError = error;
-        return speedControl;
-    }
     double calculatePDSpeedControl(double currentPosition, double targetPosition)
     {
         // Calculate the error (position error)

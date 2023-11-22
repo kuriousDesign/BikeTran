@@ -49,7 +49,7 @@ Solenoid solenoids[NUM_SOLENOIDS];
 
 // ENCODER - note that the rs485 needs to be connected to the serial1 rx and tx pins
 Encoder encoder;
-EncoderTracker tracker;
+EncoderTracker tracker(READRATE_uS);
 unsigned long lastRead_us = 0;
 
 unsigned long previousMillis = 0; // Initialize previousMillis to 0
@@ -70,9 +70,13 @@ long last_time = millis();
 #define PIN_SHIFT_UP 15
 #define PIN_SHIFT_DOWN 16
 Shifter shifter(PIN_SHIFT_UP, PIN_SHIFT_DOWN);
+bool gearChangeReq = false;
 
 // MOTOR CONTROL LAW CONTROLLER
-const double MAX_OUTPUT = 60.0;
+const double MAX_SPEEDREF_PD = 60.0; // max speedRef during PD control mode
+const int NUDGE_TIME_MS = 70;
+const double NOMINAL_SPEEDREF = 75;                  // nominal speedRef when not near the target
+const double NEAR_TARGET_DIST = 120.0;               // distance to be considered near the target, where mode switches to PD control
 PDController controller = PDController(1.2, 0.2500); // NOTE: modify these parameters to improve the control, start with pd set to zero
 #define NUM_GEARS 12
 #define MIN_POSITION 0.0
@@ -82,15 +86,22 @@ int actualGear = 1;
 bool controllerOn = false;                // set this true to activate outputs related to the controller, set to false to kill those outputs
 unsigned long activationStartTime_ms = 0; // the time the controller first became activated
 const int SOLENOID_RETRACT_TIME_MS = 100;
-const int CONTROLLER_TIME_LIMIT_MS = 1200; // max time the controller is allowed to be active
-int controllerError = 0;                   // 1: timed out
+const int CONTROLLER_TIME_LIMIT_MS = 5000; // max time the controller is allowed to be active
+int controllerErrorCode = 0;               // 1: timed out
+bool atTarget = false;
+bool atTargetAndStill = false;
+int16_t speedRef = 0;
 
 ISerial iSerial;
 long tempLong;
 float tempFloat;
 
 // DIAGNOSTICS
+#define NUM_DIAGNOSTICS_ARRAY 1000
 unsigned long lastDisplayed_ms = 0;
+int16_t speedRefArray[NUM_DIAGNOSTICS_ARRAY];
+int16_t errorArray[NUM_DIAGNOSTICS_ARRAY];
+int i_d = 0;
 
 class RadGear
 {
@@ -159,24 +170,6 @@ void loop()
     }
   */
 
-  bool gearChangeReq = false;
-  int shiftTypeReq = checkForGearShift();
-  bool atTarget = checkPosition();
-  if (shiftTypeReq > 0)
-  {
-    if (iSerial.status.mode == RadGear::Modes::IDLE || iSerial.status.mode == RadGear::Modes::SHIFTING)
-    {
-      gearChangeReq = processShiftReqNum(shiftTypeReq);
-
-      if (shiftTypeReq > 0 && gearChangeReq)
-      {
-        atTarget = false;
-        Serial.print("shiftType: ");
-        Serial.println(shiftTypeReq);
-      }
-    }
-  }
-
   switch (iSerial.status.mode)
   {
   case RadGear::Modes::ABORTING:
@@ -214,6 +207,8 @@ void loop()
     // 4. Reduce motor speed to turtle speed and keep turning in neg dir until encoder value stops changing (go to next step), other wise if encoder value is more than 1 rev from recorded value in prev step, then trigger error
 
     // 5. Stop motor and zero the encoder
+
+    /*
     digitalWrite(PWM_PIN, LOW);
     digitalWrite(DIR_PIN, LOW);
     delay(200);
@@ -230,6 +225,7 @@ void loop()
     digitalWrite(PWM_PIN, LOW);
     // delay(1000);
     digitalWrite(PIN_SOL_STOPPER, LOW);
+    */
     iSerial.setNewMode(RadGear::Modes::IDLE);
     targetGear = actualGear;
     break;
@@ -250,25 +246,36 @@ void loop()
     if (iSerial.status.step == 0)
     {
       activateController();
+      i_d = 0; // this is used for diagnostics
       iSerial.status.step = 1;
     }
     else if (iSerial.status.step == 1)
     {
       if (gearChangeReq)
       {
-        activateController(); // this will restart the activation time
+        // activateController(); // this will restart the activation time
       }
-      else if (atTarget)
+      else if (atTargetAndStill)
       {
         printCurrentPosition();
         iSerial.setNewMode(RadGear::Modes::IDLE);
       }
 
-      if (controllerError > 0)
+      if (controllerErrorCode > 0)
       {
         printCurrentPosition();
         turnOffController();
         iSerial.setNewMode(RadGear::Modes::ERROR);
+      }
+
+      if (iSerial.status.mode != RadGear::Modes::SHIFTING)
+      {
+        for (int i = 0; i < i_d; i++)
+        {
+          Serial.print(errorArray[i]);
+          Serial.print(", ");
+          Serial.println(speedRefArray[i]);
+        }
       }
     }
 
@@ -276,6 +283,22 @@ void loop()
 
   default:
     break;
+  }
+
+  int shiftTypeReq = checkForGearShift();
+  gearChangeReq = false;
+  if (shiftTypeReq > 0)
+  {
+    if (iSerial.status.mode == RadGear::Modes::IDLE || iSerial.status.mode == RadGear::Modes::SHIFTING)
+    {
+      gearChangeReq = processShiftReqNum(shiftTypeReq);
+
+      if (shiftTypeReq > 0 && gearChangeReq)
+      {
+        Serial.print("shiftType: ");
+        Serial.println(shiftTypeReq);
+      }
+    }
   }
 
   runAll(); // runs all things that have a run() method that need to be called each loop
@@ -359,8 +382,11 @@ void turnAllOff() // turn off all outputs
 void turnOffController()
 {
   controllerOn = false;
-  controllerError = 0;
+  controllerErrorCode = 0;
+  speedRef = 0;
   digitalWrite(PWM_PIN, LOW);
+  digitalWrite(PIN_SOL_STOPPER, LOW);
+  digitalWrite(DIR_PIN, LOW);
 }
 
 void activateController() // just call this once to activate
@@ -374,8 +400,11 @@ void runAll()
   bool attemptedReading = encoder.run();
   if (encoder.newReadingFlag)
   {
-    currentPosition = tracker.calculateDegrees(encoder.position);
+    currentPosition = tracker.calculatePosition(encoder.position);
+    currentVelocity = tracker.calculateFilteredVelocity();
   }
+  atTarget = checkPosition();
+  atTargetAndStill = atTarget && !tracker.isMoving;
   if (attemptedReading)
   {
     runController();
@@ -465,7 +494,8 @@ void initializeEncoderSystem()
     encoder.run();
     delayMicroseconds(600);
     encoder.run();
-    currentPosition = tracker.calculateDegrees(encoder.position);
+    currentPosition = tracker.calculatePosition(encoder.position);
+    currentVelocity = tracker.calculateFilteredVelocity();
     // Serial.println(currentPosition);
     tracker.zeroPosition();
     delay(200);
@@ -495,34 +525,41 @@ void runController()
 {
   static bool showedWarning = false;
   unsigned long activeTime_ms = millis() - activationStartTime_ms;
-  // controller.calculateSpeedControl(currentPosition, targetPosition); // always allow this to run so that previous values stay valid
+  speedRef = 0;
+  controller.calculatePDSpeedControl(currentPosition, targetPosition); // always allow this to run so that previous values stay valid
   if (controllerOn && activeTime_ms < CONTROLLER_TIME_LIMIT_MS)
   {
     // Release solenoid initially with full power, than reduce to lower power as long as the absolute target error is greater than 180deg, otherwise turn it off
-    if (activeTime_ms < 2 * SOLENOID_RETRACT_TIME_MS)
+    if (activeTime_ms < SOLENOID_RETRACT_TIME_MS)
     {
       showedWarning = false;
       // solenoids[Solenoids::STOPPER].changeMode(Solenoid::ON, 255);
       analogWrite(PIN_SOL_STOPPER, 255);
     }
-    else if (abs(controller.error) > 180.0)
+    else if (activeTime_ms < SOLENOID_RETRACT_TIME_MS + NUDGE_TIME_MS && !tracker.isMoving)
+    {
+      speedRef = 255 * controller.error / abs(controller.error);
+      analogWrite(PIN_SOL_STOPPER, 255);
+    }
+    else if (abs(controller.error) > NEAR_TARGET_DIST)
     {
       // solenoids[Solenoids::STOPPER].changeMode(Solenoid::ON, 75);
-      analogWrite(PIN_SOL_STOPPER, 144);
+      analogWrite(PIN_SOL_STOPPER, 255);
+      speedRef = NOMINAL_SPEEDREF * controller.error / abs(controller.error);
     }
-    else
+    else if (abs(controller.error) <= NEAR_TARGET_DIST) // if error is within 180.0, switch to pd control and release solenoid
     {
+      speedRef = MAX_SPEEDREF_PD * controller.speedControl / 100.0;
       // solenoids[Solenoids::STOPPER].changeMode(Solenoid::OFF);
       digitalWrite(PIN_SOL_STOPPER, LOW);
     }
 
     // SET THE DIRECTION PIN
-    if (controller.speedControl < 0.0 && !FLIP_POSITIVE)
+    if (speedRef < 0.0 && !FLIP_POSITIVE)
     {
       digitalWrite(DIR_PIN, HIGH);
-      // controller.speedControl = 0.0;
     }
-    else if (controller.speedControl > 0.0 && FLIP_POSITIVE)
+    else if (speedRef > 0.0 && FLIP_POSITIVE)
     {
       digitalWrite(DIR_PIN, HIGH);
     }
@@ -534,11 +571,18 @@ void runController()
     // SET THE PWM OUTPUT TO THE MOTOR BOARD IF ENOUGH TIME HAS BEEN ALLOTTED TO ALLOW SOLENOID TO RETRACT
     if (activeTime_ms >= SOLENOID_RETRACT_TIME_MS)
     {
-      analogWrite(PWM_PIN, MAX_OUTPUT * controller.speedControl / 100.0);
+      analogWrite(PWM_PIN, speedRef);
     }
     else
     {
       digitalWrite(PWM_PIN, LOW);
+    }
+
+    if (i_d < NUM_DIAGNOSTICS_ARRAY)
+    {
+      errorArray[i_d] = round(controller.error);
+      speedRefArray[i_d] = speedRef;
+      i_d++;
     }
   }
   else
@@ -549,7 +593,7 @@ void runController()
     // solenoids[Solenoids::STOPPER].changeMode(Solenoid::OFF);
     if (controllerOn && activeTime_ms >= CONTROLLER_TIME_LIMIT_MS && !showedWarning)
     {
-      controllerError = 1;
+      controllerErrorCode = 1;
       showedWarning = true;
       Serial.print("ERROR: Controller timed out after ");
       Serial.print(CONTROLLER_TIME_LIMIT_MS);

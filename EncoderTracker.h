@@ -4,14 +4,15 @@
 #include <Arduino.h>
 // #include <vector>
 
-#define NUM_FILTER 3
+#define NUM_FILTER 3 // this must be at least 2
+#define IS_MOVING_SPEED_THRESHOLD 50.0
 
 class EncoderTracker
 {
 public:
-    EncoderTracker() : currentDegrees(0), previousEncoderValue(0) {}
+    EncoderTracker(int tStep) : timeStep_ms(tStep) {}
     // takes in actual current encoder value and outputs current degrees, handles rollover
-    double calculateDegrees(int rawEncoderValue)
+    double calculatePosition(double rawEncoderValue)
     {
         encoderValue = rawEncoderValue - zeroOffsetEncoderValue;
 
@@ -19,48 +20,67 @@ public:
         int encoderChange = encoderValue - previousEncoderValue;
 
         // Handle rollover when the encoder value goes from 359 to 0 or vice versa
-        if (encoderChange > 180)
+        if (encoderChange > 180.0)
         {
-            encoderChange -= 360;
+            encoderChange -= 360.0;
         }
-        else if (encoderChange < -180)
+        else if (encoderChange < -180.0)
         {
-            encoderChange += 360;
+            encoderChange += 360.0;
         }
 
         // Update the previous encoder value for the next calculation
         previousEncoderValue = encoderValue;
 
         // Update the current degrees traveled without bounding
-        currentDegrees += encoderChange;
+        currentPosition += encoderChange;
 
-        return currentDegrees;
+        return currentPosition;
     }
-    //
-    double calculateFilteredVelocity(double currentPosition)
+    // calculate average velocity from last few values and update isMoving status
+    double calculateFilteredVelocity()
     {
         static int index = 0;
         sumFilteredVelocity -= storedPositions[index];
         sumFilteredVelocity += currentPosition;
         index++;
-        return 1000.0 * sumFilteredVelocity / (NUM_FILTER - 1) * timeStep_ms;
+        if (index >= NUM_FILTER)
+        {
+            index = 0;
+        }
+        currentVelocity = 1000.0 * sumFilteredVelocity / (NUM_FILTER - 1) * timeStep_ms;
+
+        if (abs(currentVelocity) >= IS_MOVING_SPEED_THRESHOLD)
+        {
+            isMoving = true;
+        }
+        else
+        {
+            isMoving = false;
+        }
+
+        return currentVelocity;
     }
     void zeroPosition()
     {
         zeroOffsetEncoderValue = encoderValue + zeroOffsetEncoderValue;
         previousEncoderValue = 0;
-        currentDegrees = 0.0;
+        currentPosition = 0.0;
     }
+
+    double currentVelocity = 0.0; // filtered
+    double currentPosition = 0;   // Current degrees traveled
+    bool isMoving = false;
 
 private:
     double timeStep_ms = 0.60;
-    double currentDegrees = 0;    // Current degrees traveled
-    int previousEncoderValue = 0; // Previous encoder value
-    int zeroOffsetEncoderValue = 0;
-    int encoderValue = 0;
-    double currentVelocity = 0.0;
+
+    double previousEncoderValue = 0.0; // Previous encoder value
+    double zeroOffsetEncoderValue = 0.0;
+    double encoderValue = 0.0; // offset is applied
+
     double storedPositions[NUM_FILTER];
-    double sumFilteredVelocity;
+    double sumFilteredVelocity = 0.0;
 };
 
 #endif
