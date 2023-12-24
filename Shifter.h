@@ -79,8 +79,10 @@ public:
         DOWN = 2,       // down one
         SUPER_UP = 3,   // all the way up
         SUPER_DOWN = 4, // all the way down
+        ABS = 5,        // go to specific gear
 
     };
+
     int shiftReqNum = ShiftTypes::NONE;
     unsigned long previousMillisUp = 0;
     unsigned long previousMillisDown = 0;

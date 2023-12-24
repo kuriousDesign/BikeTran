@@ -71,6 +71,9 @@ long last_time = millis();
 #define PIN_SHIFT_DOWN 16
 Shifter shifter(PIN_SHIFT_UP, PIN_SHIFT_DOWN);
 bool gearChangeReq = false;
+int serialShiftReqType = 0;
+int serialShiftTargetGearParam = 0;
+int shiftTargetGearParam = 0;
 
 // MOTOR CONTROL LAW CONTROLLER
 const double MAX_SPEEDREF_PD = 60.0; // max speedRef during PD control mode
@@ -162,13 +165,6 @@ void loop()
     lastDisplayed_ms = millis();
     printCurrentPosition();
   }
-
-  /*
-    if (iSerial.taskProcessUserInput())
-    {
-      handleSerialCmds();
-    }
-  */
 
   switch (iSerial.status.mode)
   {
@@ -272,9 +268,9 @@ void loop()
       {
         for (int i = 0; i < i_d; i++)
         {
-          Serial.print(errorArray[i]);
-          Serial.print(", ");
-          Serial.println(speedRefArray[i]);
+          iSerial.debugPrint(String(errorArray[i]));
+          iSerial.debugPrint(", ");
+          iSerial.debugPrintln(String(speedRefArray[i]));
         }
       }
     }
@@ -285,19 +281,28 @@ void loop()
     break;
   }
 
-  int shiftTypeReq = checkForGearShift();
+  if (iSerial.readIncomingData())
+  {
+    handleSerialCmds(); // inside this command, the serialShiftReqType is assigned (if received)
+  }
+
+  int shiftTypeReq = checkForGearShiftRequests();
   gearChangeReq = false;
   if (shiftTypeReq > 0)
   {
     if (iSerial.status.mode == RadGear::Modes::IDLE || iSerial.status.mode == RadGear::Modes::SHIFTING)
     {
-      gearChangeReq = processShiftReqNum(shiftTypeReq);
+      gearChangeReq = processShiftReqNum(shiftTypeReq, shiftTargetGearParam);
 
       if (shiftTypeReq > 0 && gearChangeReq)
       {
-        Serial.print("shiftType: ");
-        Serial.println(shiftTypeReq);
+        iSerial.debugPrint("shiftType: ");
+        iSerial.debugPrintln(String(shiftTypeReq));
       }
+    }
+    else
+    {
+      iSerial.debugPrintln("WARNING: shift request only accepted when motor is idle or shifting");
     }
   }
 
@@ -310,15 +315,63 @@ void loop()
   // solenoids[0].setDebug(iSerial.debug);
 }
 
-// handles serial cmds that aren't already handled by ISerial (connect, mode, debug, maybe more?)
+void processRelPosCmd()
+{
+  // int motorId = iSerial.idChr - '0';
+  if (!iSerial.parseLong(tempLong))
+  {
+    if (tempLong > 0)
+    {
+      serialShiftReqType = Shifter::ShiftTypes::UP;
+    }
+    else if (tempLong < 0)
+    {
+      serialShiftReqType = Shifter::ShiftTypes::DOWN;
+    }
+
+    iSerial.writeCmdChrIdChr();
+    iSerial.writeLong(tempLong);
+    iSerial.writeNewline();
+  }
+  else
+  {
+    iSerial.writeCmdWarning("could not parse position data");
+  }
+}
+
+void processAbsPosCmd()
+{
+  // int motorId = iSerial.idChr - '0';
+  if (!iSerial.parseLong(tempLong))
+  {
+    serialShiftReqType = Shifter::ShiftTypes::ABS;
+    serialShiftTargetGearParam = tempLong;
+
+    iSerial.writeCmdChrIdChr();
+    iSerial.writeLong(tempLong);
+    iSerial.writeNewline();
+  }
+  else
+  {
+    iSerial.writeCmdWarning("could not parse position data");
+  }
+}
+
+// handles serial cmds that aren't already handled by ISerial (connect, mode, debug)
 void handleSerialCmds()
 {
-  int idx = iSerial.idChr - '0';
+  // int idx = iSerial.idChr - '0';
+
+  iSerial.handleBasicSerialCmds();
 
   switch (iSerial.cmdChr)
   {
   case Cmds::ABSPOS_CMD:
-    // processAbsPosCmd();
+    processAbsPosCmd();
+    break;
+
+  case Cmds::RELPOS_CMD:
+    processRelPosCmd();
     break;
 
   case Cmds::SERVOPOSINFO_CMD:
@@ -328,16 +381,16 @@ void handleSerialCmds()
   case Cmds::SERIAL_OUTPUT: // prints serial information for use with a serial monitor, not to be used with high frequency (use INFO_CMD for that)
     iSerial.writeCmdChrIdChr();
     iSerial.writeNewline();
-    Serial.print("iSerial.status.mode: ");
-    Serial.println(iSerial.status.mode);
-    // Serial.print("Servo Mode: ");
-    // Serial.println(servos[idx].mode);
-    // Serial.print("ActualPosition_pulse: ");
-    // Serial.println(servos[idx].pos);
-    //  Serial.print("RefPosition: ");
-    //  Serial.println(servos[idx].referencePosition);
-    //  Serial.print("ActualVelocity: ");
-    //  Serial.println(ts[idx].iStepper.status.actualVelocity);
+    iSerial.debugPrint("iSerial.status.mode: ");
+    iSerial.debugPrintln(String(iSerial.status.mode));
+    // iSerial.debugPrint("Servo Mode: ");
+    // iSerial.debugPrintln(servos[idx].mode);
+    // iSerial.debugPrint("ActualPosition_pulse: ");
+    // iSerial.debugPrintln(servos[idx].pos);
+    //  iSerial.debugPrint("RefPosition: ");
+    //  iSerial.debugPrintln(servos[idx].referencePosition);
+    //  iSerial.debugPrint("ActualVelocity: ");
+    //  iSerial.debugPrintln(ts[idx].iStepper.status.actualVelocity);
     break;
 
   case Cmds::PARAMS_SET: // set params
@@ -464,14 +517,14 @@ bool setTargetGear(int targetGearNum)
   }
 
   targetPosition = 360.0 * (targetGear - 1);
-  Serial.print("Target Gear: ");
-  Serial.println(targetGear);
-  Serial.print("Target Position: ");
-  Serial.println(targetPosition);
-  Serial.print("Actual Gear: ");
-  Serial.println(actualGear);
-  Serial.print("Actual Position: ");
-  Serial.println(currentPosition);
+  iSerial.debugPrint("Target Gear: ");
+  iSerial.debugPrintln(String(targetGear));
+  iSerial.debugPrint("Target Position: ");
+  iSerial.debugPrintln(String(targetPosition));
+  iSerial.debugPrint("Actual Gear: ");
+  iSerial.debugPrintln(String(actualGear));
+  iSerial.debugPrint("Actual Position: ");
+  iSerial.debugPrintln(String(currentPosition));
   return (targetGear != prevTargetGear);
 }
 
@@ -496,7 +549,7 @@ void initializeEncoderSystem()
     encoder.run();
     currentPosition = tracker.calculatePosition(encoder.position);
     currentVelocity = tracker.calculateFilteredVelocity();
-    // Serial.println(currentPosition);
+    // iSerial.debugPrintln(currentPosition);
     tracker.zeroPosition();
     delay(200);
   }
@@ -595,76 +648,78 @@ void runController()
     {
       controllerErrorCode = 1;
       showedWarning = true;
-      Serial.print("ERROR: Controller timed out after ");
-      Serial.print(CONTROLLER_TIME_LIMIT_MS);
-      Serial.println(" ms");
+      iSerial.debugPrint("ERROR: Controller timed out after ");
+      iSerial.debugPrint(String(CONTROLLER_TIME_LIMIT_MS));
+      iSerial.debugPrintln(" ms");
     }
   }
 }
 
-int checkForGearShift()
+int checkForGearShiftRequests()
 {
   int shiftReqType = shifter.checkShiftReq();
-  if (shiftReqType == 0)
+  if (shiftReqType == Shifter::ShiftTypes::NONE)
   {
-    shiftReqType = checkForGearShiftSerial();
+    shiftReqType = serialShiftReqType;
+    shiftTargetGearParam = serialShiftTargetGearParam;
   }
+  serialShiftReqType = Shifter::ShiftTypes::NONE; // reset the value
+  serialShiftTargetGearParam = 0;
   return shiftReqType;
 }
 
 // updates the target gear and corresponding target position
-bool processShiftReqNum(int shiftType)
+bool processShiftReqNum(int shiftType, int targetGearParam)
 {
   bool targetChanged = false;
   switch (shiftType)
   {
-  case Shifter::NONE:
+  case Shifter::ShiftTypes::NONE:
     break;
-  case Shifter::SUPER_UP:
-    Serial.println("SUPER UP SHIFT");
+  case Shifter::ShiftTypes::SUPER_UP:
+    iSerial.debugPrintln("SUPER UP SHIFT");
     targetChanged = setTargetGear(NUM_GEARS);
     break;
-  case Shifter::UP:
-    Serial.println("UP SHIFT");
+  case Shifter::ShiftTypes::UP:
+    iSerial.debugPrintln("UP SHIFT");
     targetChanged = setTargetGear(targetGear + 1);
     break;
-  case Shifter::SUPER_DOWN:
-    Serial.println("SUPER DOWN SHIFT");
+  case Shifter::ShiftTypes::SUPER_DOWN:
+    iSerial.debugPrintln("SUPER DOWN SHIFT");
     targetChanged = setTargetGear(1);
     break;
-  case Shifter::DOWN:
-    Serial.println("DOWN SHIFT");
+  case Shifter::ShiftTypes::DOWN:
+    iSerial.debugPrintln("DOWN SHIFT");
     targetChanged = setTargetGear(targetGear - 1);
+    break;
+  case Shifter::ShiftTypes::ABS:
+    iSerial.debugPrint("ABS SHIFT TO: ");
+    iSerial.debugPrintln(String(targetGearParam));
+    targetChanged = setTargetGear(targetGearParam);
     break;
   }
   return targetChanged;
 }
 
-int checkForGearShiftSerial()
+// OUTDATED - consider deprecating
+int checkForGearShiftSerial(String receivedString)
 {
-  if (Serial.available())
+
+  if (receivedString.equals("SUPERUP"))
   {
-    String receivedString = Serial.readStringUntil('\n');
-    if (receivedString.equals("SUPERUP"))
-    {
-      return Shifter::SUPER_UP;
-    }
-    else if (receivedString.equals("UP"))
-    {
-      return Shifter::UP;
-    }
-    else if (receivedString.equals('SUPERDOWN'))
-    {
-      return Shifter::DOWN;
-    }
-    else if (receivedString.equals('DOWN'))
-    {
-      return Shifter::DOWN;
-    }
-    else
-    {
-      return Shifter::NONE;
-    }
+    return Shifter::SUPER_UP;
+  }
+  else if (receivedString.equals("UP"))
+  {
+    return Shifter::UP;
+  }
+  else if (receivedString.equals('SUPERDOWN'))
+  {
+    return Shifter::DOWN;
+  }
+  else if (receivedString.equals('DOWN'))
+  {
+    return Shifter::DOWN;
   }
   else
   {
@@ -732,9 +787,9 @@ void setupPWM(int pin, long frequency)
 
 void printCurrentPosition()
 {
-  // Serial.print("Current Position: ");
-  Serial.println(currentPosition, 1); // Use 1 decimal places for floating-point numbers
-  // Serial.println(dataSize);
+  // iSerial.debugPrint("Current Position: ");
+  iSerial.debugPrintln(String(currentPosition)); // Use 1 decimal places for floating-point numbers
+  // iSerial.debugPrintln(dataSize);
 }
 
 /////////////////////////////
