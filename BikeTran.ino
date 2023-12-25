@@ -107,6 +107,7 @@ unsigned long lastDisplayed_ms = 0;
 int16_t cmdRefArray[NUM_DIAGNOSTICS_ARRAY];
 int16_t errorArray[NUM_DIAGNOSTICS_ARRAY];
 int i_d = 0;
+String jsonString = '';
 
 class RadGear
 {
@@ -274,8 +275,7 @@ void loop()
           iSerial.debugPrint(", ");
           iSerial.debugPrintln(String(cmdRefArray[i]));
         }
-        String jsonString = convertDiagnosticDataToJsonString(i_d);
-        iSerial.writeString(jsonString);
+        jsonString = convertDiagnosticDataToJsonString(i_d);
       }
     }
 
@@ -416,17 +416,11 @@ void handleSerialCmds()
 
   case Cmds::SERIAL_OUTPUT: // prints serial information for use with a serial monitor, not to be used with high frequency (use INFO_CMD for that)
     iSerial.writeCmdChrIdChr();
+    jsonString = convertDiagnosticDataToJsonString(i_d);
+    iSerial.writeString(jsonString);
     iSerial.writeNewline();
-    iSerial.debugPrint("iSerial.status.mode: ");
-    iSerial.debugPrintln(String(iSerial.status.mode));
-    // iSerial.debugPrint("Servo Mode: ");
-    // iSerial.debugPrintln(servos[idx].mode);
-    // iSerial.debugPrint("ActualPosition_pulse: ");
-    // iSerial.debugPrintln(servos[idx].pos);
-    //  iSerial.debugPrint("RefPosition: ");
-    //  iSerial.debugPrintln(servos[idx].referencePosition);
-    //  iSerial.debugPrint("ActualVelocity: ");
-    //  iSerial.debugPrintln(ts[idx].iStepper.status.actualVelocity);
+    // iSerial.debugPrint("iSerial.status.mode: ");
+    // iSerial.debugPrintln(String(iSerial.status.mode));
     break;
 
   case Cmds::PARAMS_SET: // set params
