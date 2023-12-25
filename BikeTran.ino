@@ -6,6 +6,7 @@ bool FLIP_POSITIVE = false; // This should normally be false, just used for test
 #include "EncoderTracker.h"
 #include "Shifter.h"
 #include "Solenoid.h"
+#include "ArduinoJson.h"
 
 // PWM SIGNAL TO MOTOR DRIVER
 // 50Hz-20kHz, Amp 2.5V-5V
@@ -71,9 +72,10 @@ long last_time = millis();
 #define PIN_SHIFT_DOWN 16
 Shifter shifter(PIN_SHIFT_UP, PIN_SHIFT_DOWN);
 bool gearChangeReq = false;
+int shiftTargetGearParam = 0;
+// SERIAL SHIFTER DATA
 int serialShiftReqType = 0;
 int serialShiftTargetGearParam = 0;
-int shiftTargetGearParam = 0;
 
 // MOTOR CONTROL LAW CONTROLLER
 const double MAX_SPEEDREF_PD = 60.0; // max speedRef during PD control mode
@@ -102,7 +104,7 @@ float tempFloat;
 // DIAGNOSTICS
 #define NUM_DIAGNOSTICS_ARRAY 1000
 unsigned long lastDisplayed_ms = 0;
-int16_t speedRefArray[NUM_DIAGNOSTICS_ARRAY];
+int16_t cmdRefArray[NUM_DIAGNOSTICS_ARRAY];
 int16_t errorArray[NUM_DIAGNOSTICS_ARRAY];
 int i_d = 0;
 
@@ -270,8 +272,10 @@ void loop()
         {
           iSerial.debugPrint(String(errorArray[i]));
           iSerial.debugPrint(", ");
-          iSerial.debugPrintln(String(speedRefArray[i]));
+          iSerial.debugPrintln(String(cmdRefArray[i]));
         }
+        String jsonString = convertDiagnosticDataToJsonString(i_d);
+        iSerial.writeString(jsonString);
       }
     }
 
@@ -313,6 +317,38 @@ void loop()
 
   // DEBUG PASSTHROUGHS - comment out as needed
   // solenoids[0].setDebug(iSerial.debug);
+}
+
+String convertDiagnosticDataToJsonString(int lenArray)
+{
+  // Define the JSON object
+  const size_t capacity = JSON_ARRAY_SIZE(lenArray) + JSON_OBJECT_SIZE(2);
+  DynamicJsonDocument doc(capacity);
+
+  // Create arrays and store them in the JSON object
+  JsonArray errorArrayJson = doc.createNestedArray("error");
+  for (size_t i = 0; i < lenArray; ++i)
+  {
+    errorArrayJson.add(errorArray[i]);
+  }
+
+  JsonArray cmdArrayJson = doc.createNestedArray("cmdRef");
+  for (size_t i = 0; i < lenArray; ++i)
+  {
+    cmdArrayJson.add(cmdRefArray[i]);
+  }
+
+  // Add the "numOfDataPoints" key
+  doc["numOfDataPoints"] = lenArray; // Replace 4 with the actual number of data points
+
+  // Serialize JSON object to a string
+  String jsonString;
+  serializeJson(doc, jsonString);
+
+  // Print the JSON string
+  Serial.println(jsonString);
+
+  return jsonString;
 }
 
 void processRelPosCmd()
@@ -634,7 +670,7 @@ void runController()
     if (i_d < NUM_DIAGNOSTICS_ARRAY)
     {
       errorArray[i_d] = round(controller.error);
-      speedRefArray[i_d] = speedRef;
+      cmdRefArray[i_d] = speedRef;
       i_d++;
     }
   }

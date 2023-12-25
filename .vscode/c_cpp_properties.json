@@ -39,7 +39,7 @@
         },
         {
             "name": "Arduino",
-            "compilerPath": "/home/robot/.arduino15/packages/arduino/tools/avr-gcc/7.3.0-atmel3.6.1-arduino7/bin/avr-g++",
+            "compilerPath": "/home/jake/.arduino15/packages/arduino/tools/avr-gcc/7.3.0-atmel3.6.1-arduino7/bin/avr-g++",
             "compilerArgs": [
                 "-w",
                 "-std=gnu++11",
@@ -52,17 +52,18 @@
             ],
             "intelliSenseMode": "gcc-x64",
             "includePath": [
-                "/home/robot/.arduino15/packages/arduino/hardware/avr/1.8.6/cores/arduino",
-                "/home/robot/.arduino15/packages/arduino/hardware/avr/1.8.6/variants/mega",
-                "/home/robot/Arduino/libraries/ISerial",
-                "/home/robot/Arduino/libraries/SafeString/src",
-                "/home/robot/Arduino/libraries/jsonlib",
-                "/home/robot/.arduino15/packages/arduino/tools/avr-gcc/7.3.0-atmel3.6.1-arduino7/lib/gcc/avr/7.3.0/include",
-                "/home/robot/.arduino15/packages/arduino/tools/avr-gcc/7.3.0-atmel3.6.1-arduino7/lib/gcc/avr/7.3.0/include-fixed",
-                "/home/robot/.arduino15/packages/arduino/tools/avr-gcc/7.3.0-atmel3.6.1-arduino7/avr/include"
+                "/home/jake/.arduino15/packages/arduino/hardware/avr/1.8.6/cores/arduino",
+                "/home/jake/.arduino15/packages/arduino/hardware/avr/1.8.6/variants/mega",
+                "/home/jake/Arduino/libraries/ISerial",
+                "/home/jake/Arduino/libraries/SafeString/src",
+                "/home/jake/Arduino/libraries/jsonlib",
+                "/home/jake/Arduino/libraries/ArduinoJson/src",
+                "/home/jake/.arduino15/packages/arduino/tools/avr-gcc/7.3.0-atmel3.6.1-arduino7/lib/gcc/avr/7.3.0/include",
+                "/home/jake/.arduino15/packages/arduino/tools/avr-gcc/7.3.0-atmel3.6.1-arduino7/lib/gcc/avr/7.3.0/include-fixed",
+                "/home/jake/.arduino15/packages/arduino/tools/avr-gcc/7.3.0-atmel3.6.1-arduino7/avr/include"
             ],
             "forcedInclude": [
-                "/home/robot/.arduino15/packages/arduino/hardware/avr/1.8.6/cores/arduino/Arduino.h"
+                "/home/jake/.arduino15/packages/arduino/hardware/avr/1.8.6/cores/arduino/Arduino.h"
             ],
             "cStandard": "c11",
             "cppStandard": "c++11",

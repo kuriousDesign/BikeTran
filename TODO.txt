@@ -1,0 +1,5 @@
+STATUS      DESCRIPTION
+        
+            Homing Sequence 
+            Diagnostic Output
+            ROS2 Node Driver for UI
