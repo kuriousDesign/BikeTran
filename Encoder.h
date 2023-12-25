@@ -43,12 +43,16 @@ private:
     void writeEncoderCmd(byte cmd);
     void writeReadCmd();
     float parsePositionData();
+    bool debug;
 
 public:
     void init();
     bool run();
     bool newReadingFlag = false;
     float position = 0; // current position of the encoder, valid range is between 0.0 and 359.99
+    void setDebug(bool setOn);
+    void debugPrintln(String msg);
+    void debugPrint(String msg);
 };
 
 #endif

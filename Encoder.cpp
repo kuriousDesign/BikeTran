@@ -41,7 +41,7 @@ bool Encoder::readEncoder()
         else
         {
             isValid = false;
-            Serial.println("Data array is full!");
+            debugPrintln("Data array is full!");
             // You can handle the array being full in your own way here
         }
     }
@@ -61,17 +61,17 @@ bool Encoder::readEncoder()
         if (result != dataArray[4])
         {
             // isValid = false;
-            Serial.print("check bit mismatch, calculated result: ");
-            Serial.print(result);
-            Serial.print(" , checkbit: ");
+            debugPrint("check bit mismatch, calculated result: ");
+            debugPrint(String(result));
+            debugPrint(" , checkbit: ");
             // Serial.println(dataArray[4]);
         }
     }
     else if (dataSize != 5)
     {
         isValid = false;
-        Serial.print("dataSize was not equal to 5, it was: ");
-        Serial.println(dataSize);
+        debugPrint("dataSize was not equal to 5, it was: ");
+        debugPrintln(String(dataSize));
     }
     return isValid;
 }
@@ -112,4 +112,24 @@ bool Encoder::run()
     }
 
     return attemptedReading;
+}
+
+void Encoder::debugPrint(String msg)
+{
+    if (debug)
+    {
+        Serial.print(msg);
+    }
+}
+
+void Encoder::debugPrintln(String msg)
+{
+    if (debug)
+    {
+        Serial.println(msg);
+    }
+}
+void Encoder::setDebug(bool setOn)
+{
+    debug = setOn;
 }

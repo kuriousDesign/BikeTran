@@ -6,7 +6,6 @@ bool FLIP_POSITIVE = false; // This should normally be false, just used for test
 #include "EncoderTracker.h"
 #include "Shifter.h"
 #include "Solenoid.h"
-#include "ArduinoJson.h"
 
 // PWM SIGNAL TO MOTOR DRIVER
 // 50Hz-20kHz, Amp 2.5V-5V
@@ -156,7 +155,7 @@ void setup()
   setupPWM(PWM_PIN, PWM_FREQUENCY_HZ); // initialize motor control pin
 
   initializeEncoderSystem();
-  iSerial.debug = true;
+  // iSerial.debug = true;
   iSerial.setNewMode(RadGear::Modes::ABORTING);
 }
 
@@ -275,7 +274,7 @@ void loop()
           iSerial.debugPrint(", ");
           iSerial.debugPrintln(String(cmdRefArray[i]));
         }
-        jsonString = convertDiagnosticDataToJsonString(i_d);
+        // jsonString = convertDiagnosticDataToJsonString(i_d);
       }
     }
 
@@ -285,7 +284,7 @@ void loop()
     break;
   }
 
-  if (iSerial.readIncomingData())
+  if (iSerial.taskProcessUserInput())
   {
     handleSerialCmds(); // inside this command, the serialShiftReqType is assigned (if received)
   }
@@ -321,23 +320,66 @@ void loop()
 
 String convertDiagnosticDataToJsonString(int lenArray)
 {
+  // Construct error array string
+  String errorArrayString = "[";
+  // Construct cmd array string
+  String cmdArrayString = "[";
+
+  if (lenArray > 0)
+  {
+    for (size_t i = 0; i < lenArray; ++i)
+    {
+      errorArrayString += String(errorArray[i]);
+      cmdArrayString += String(cmdRefArray[i]);
+      if (i < lenArray - 1)
+      {
+        errorArrayString += ", ";
+        cmdArrayString += ", ";
+      }
+    }
+  }
+  errorArrayString += "]";
+  cmdArrayString += "]";
+
+  // Create the inner object JSON string
+  String innerJson = "{\"error\": " + errorArrayString + ", \"cmd\": " + cmdArrayString + ", \"numOfDataPoints\": " + String(lenArray) + "}";
+
+  // Create the outer object JSON string and nest the inner object inside it
+  String outerJson = "{\"diagnostic\": " + innerJson + "}";
+
+  // Print the JSON string
+  Serial.println(outerJson);
+
+  return outerJson;
+}
+
+/*
+String convertDiagnosticDataToJsonStringOld(int lenArray)
+{
   // Define the JSON object
-  const size_t capacity = JSON_ARRAY_SIZE(lenArray) + JSON_OBJECT_SIZE(2);
+  const size_t capacity = JSON_ARRAY_SIZE(lenArray) + JSON_OBJECT_SIZE(3);
   DynamicJsonDocument doc(capacity);
 
-  // Create arrays and store them in the JSON object
-  JsonArray errorArrayJson = doc.createNestedArray("error");
-  for (size_t i = 0; i < lenArray; ++i)
+  if (lenArray > 0)
   {
-    errorArrayJson.add(errorArray[i]);
-  }
+    // Create arrays and store them in the JSON object
+    JsonArray errorArrayJson = doc.createNestedArray("error");
+    for (size_t i = 0; i < lenArray; ++i)
+    {
+      errorArrayJson.add(errorArray[i]);
+    }
 
-  JsonArray cmdArrayJson = doc.createNestedArray("cmdRef");
-  for (size_t i = 0; i < lenArray; ++i)
+    JsonArray cmdArrayJson = doc.createNestedArray("cmdRef");
+    for (size_t i = 0; i < lenArray; ++i)
+    {
+      cmdArrayJson.add(cmdRefArray[i]);
+    }
+  }
+  else
   {
-    cmdArrayJson.add(cmdRefArray[i]);
+    doc["error"] = "";
+    doc["cmdRef"] = "";
   }
-
   // Add the "numOfDataPoints" key
   doc["numOfDataPoints"] = lenArray; // Replace 4 with the actual number of data points
 
@@ -347,14 +389,15 @@ String convertDiagnosticDataToJsonString(int lenArray)
   outerDoc["diagnostic"] = doc;
 
   // Serialize outer JSON object to a string
-  String jsonString;
-  serializeJson(outerDoc, jsonString);
+  String jsonStr;
+  serializeJson(outerDoc, jsonStr);
 
   // Print the JSON string
-  iSerial.debugPrintln(jsonString);
+  iSerial.debugPrintln(jsonStr);
 
-  return jsonString;
+  return jsonStr;
 }
+*/
 
 void processRelPosCmd()
 {
