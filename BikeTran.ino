@@ -107,7 +107,7 @@ unsigned long lastDisplayed_ms = 0;
 int16_t cmdRefArray[NUM_DIAGNOSTICS_ARRAY];
 int16_t errorArray[NUM_DIAGNOSTICS_ARRAY];
 int i_d = 0;
-String jsonString = '';
+String jsonString = "";
 
 class RadGear
 {
@@ -341,12 +341,17 @@ String convertDiagnosticDataToJsonString(int lenArray)
   // Add the "numOfDataPoints" key
   doc["numOfDataPoints"] = lenArray; // Replace 4 with the actual number of data points
 
-  // Serialize JSON object to a string
+  // Create the outer JSON object and nest the inner one inside
+  const size_t outerCapacity = JSON_OBJECT_SIZE(1);
+  DynamicJsonDocument outerDoc(outerCapacity);
+  outerDoc["diagnostic"] = doc;
+
+  // Serialize outer JSON object to a string
   String jsonString;
-  serializeJson(doc, jsonString);
+  serializeJson(outerDoc, jsonString);
 
   // Print the JSON string
-  Serial.println(jsonString);
+  iSerial.debugPrintln(jsonString);
 
   return jsonString;
 }
