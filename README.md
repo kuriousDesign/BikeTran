@@ -63,3 +63,4 @@ Command reply: json string containing the following keys and data
 ISerial (custom lib from FirmwareWithSerialInterface by KuriousDesign)
 SafeString - by Matthew Ford (Library Manager)
 jsonlib - by Justin Shaw (Library Manager)
+ArduinoJson - by Benoit Blanchon 
