@@ -358,9 +358,13 @@ void printDiagnosticDataToJsonString(int lenArray)
   }
   iSerial.writeString("]");
 
-  iSerial.writeString(", \"numOfDataPoints\": " + String(lenArray) + "}");
+  iSerial.writeString(", \"numOfDataPoints\": " + String(lenArray));
 
-  iSerial.writeString("}");
+  iSerial.writeString(", \"mode\": " + String(iSerial.status.mode));
+
+  iSerial.writeString("}"); // closing the innerDoc
+
+  iSerial.writeString("}"); // closing the outerDoc
 
   // Create the inner object JSON string
   // String innerJson = "{\"error\": " + errorArrayString + ", \"cmd\": " + cmdArrayString + ", \"numOfDataPoints\": " + String(lenArray) + "}";
