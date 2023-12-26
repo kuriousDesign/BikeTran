@@ -101,7 +101,7 @@ long tempLong;
 float tempFloat;
 
 // DIAGNOSTICS
-#define NUM_DIAGNOSTICS_ARRAY 1000
+#define NUM_DIAGNOSTICS_ARRAY 400
 unsigned long lastDisplayed_ms = 0;
 int16_t cmdRefArray[NUM_DIAGNOSTICS_ARRAY];
 int16_t errorArray[NUM_DIAGNOSTICS_ARRAY];
