@@ -318,39 +318,60 @@ void loop()
   // solenoids[0].setDebug(iSerial.debug);
 }
 
-String convertDiagnosticDataToJsonString(int lenArray)
+void printDiagnosticDataToJsonString(int lenArray)
 {
-  // Construct error array string
-  String errorArrayString = "[";
-  // Construct cmd array string
-  String cmdArrayString = "[";
+
+  iSerial.writeString("{\"diagnostic\": ");
+
+  // innerJson
+  iSerial.writeString("{\"error\": ");
+
+  iSerial.writeString("[");
 
   if (lenArray > 0)
   {
     for (size_t i = 0; i < lenArray; ++i)
     {
-      errorArrayString += String(errorArray[i]);
-      cmdArrayString += String(cmdRefArray[i]);
+      iSerial.writeString(String(errorArray[i]));
       if (i < lenArray - 1)
       {
-        errorArrayString += ", ";
-        cmdArrayString += ", ";
+        iSerial.writeString(", ");
       }
     }
   }
-  errorArrayString += "]";
-  cmdArrayString += "]";
+  iSerial.writeString("]");
+
+  iSerial.writeString(", \"cmd\": ");
+
+  iSerial.writeString("[");
+
+  if (lenArray > 0)
+  {
+    for (size_t i = 0; i < lenArray; ++i)
+    {
+      iSerial.writeString(String(cmdRefArray[i]));
+      if (i < lenArray - 1)
+      {
+        iSerial.writeString(", ");
+      }
+    }
+  }
+  iSerial.writeString("]");
+
+  iSerial.writeString(", \"numOfDataPoints\": " + String(lenArray) + "}");
+
+  iSerial.writeString("}");
 
   // Create the inner object JSON string
-  String innerJson = "{\"error\": " + errorArrayString + ", \"cmd\": " + cmdArrayString + ", \"numOfDataPoints\": " + String(lenArray) + "}";
+  // String innerJson = "{\"error\": " + errorArrayString + ", \"cmd\": " + cmdArrayString + ", \"numOfDataPoints\": " + String(lenArray) + "}";
 
   // Create the outer object JSON string and nest the inner object inside it
-  String outerJson = "{\"diagnostic\": " + innerJson + "}";
+  // String outerJson = "{\"diagnostic\": " + innerJson + "}";
 
   // Print the JSON string
-  Serial.println(outerJson);
+  // Serial.println(outerJson);
 
-  return outerJson;
+  // return outerJson;
 }
 
 /*
@@ -464,8 +485,8 @@ void handleSerialCmds()
 
   case Cmds::SERIAL_OUTPUT: // prints serial information for use with a serial monitor, not to be used with high frequency (use INFO_CMD for that)
     iSerial.writeCmdChrIdChr();
-    jsonString = convertDiagnosticDataToJsonString(i_d);
-    iSerial.writeString(jsonString);
+    printDiagnosticDataToJsonString(i_d);
+    // iSerial.writeString(jsonString);
     iSerial.writeNewline();
     // iSerial.debugPrint("iSerial.status.mode: ");
     // iSerial.debugPrintln(String(iSerial.status.mode));
