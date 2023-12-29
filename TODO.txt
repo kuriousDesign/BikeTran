@@ -1,5 +1,7 @@
 STATUS      DESCRIPTION
         
             Homing Sequence 
-            Diagnostic Output
-            ROS2 Node Driver for UI
+            Diagnostic Output (is length of arrays too long?)
+Test        ROS2 Node Driver for UI
+            DEBUG: encoder not providing accurate readings
+            DEBUG: when mega powers it up prints out something weird with an 'f' at the beginnning, won't connect to serial driver

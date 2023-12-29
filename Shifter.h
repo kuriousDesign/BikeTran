@@ -68,8 +68,8 @@ public:
     {
         pinMode(PIN_UP_SHIFT, INPUT);
         pinMode(PIN_DOWN_SHIFT, INPUT);
-        Serial.print("pin_up");
-        Serial.println(PIN_UP_SHIFT);
+        // Serial.print("pin_up");
+        // Serial.println(PIN_UP_SHIFT);
     }
 
     enum ShiftTypes : int
