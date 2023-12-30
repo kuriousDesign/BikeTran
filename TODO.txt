@@ -5,4 +5,4 @@ STATUS      DESCRIPTION
             DEBUG: diagnostic output keeps printing ~~, possible issue with data recording during shifting, try sending pre-filled array with value 13s
 Test        ROS2 Node Driver for UI
             DEBUG: encoder not providing accurate readings
-DONE            DEBUG: when mega powers it up prints out something weird with an 'f' at the beginnning, won't connect to serial driver
+DONE        DEBUG: when mega powers it up prints out something weird with an 'f' at the beginnning, won't connect to serial driver
