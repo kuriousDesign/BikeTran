@@ -101,7 +101,7 @@ long tempLong;
 float tempFloat;
 
 // DIAGNOSTICS
-#define NUM_DIAGNOSTICS_ARRAY 400
+#define NUM_DIAGNOSTICS_ARRAY 15
 unsigned long lastDisplayed_ms = 0;
 int16_t cmdRefArray[NUM_DIAGNOSTICS_ARRAY];
 int16_t errorArray[NUM_DIAGNOSTICS_ARRAY];
@@ -330,7 +330,7 @@ void printDiagnosticDataToJsonString(int lenArray)
 
   if (lenArray > 0)
   {
-    for (size_t i = 0; i < lenArray; ++i)
+    for (int i = 0; i < lenArray; i++)
     {
       iSerial.writeString(String(errorArray[i]));
       if (i < lenArray - 1)
@@ -347,7 +347,7 @@ void printDiagnosticDataToJsonString(int lenArray)
 
   if (lenArray > 0)
   {
-    for (size_t i = 0; i < lenArray; ++i)
+    for (int i = 0; i < lenArray; i++)
     {
       iSerial.writeString(String(cmdRefArray[i]));
       if (i < lenArray - 1)
@@ -739,6 +739,11 @@ void runController()
       errorArray[i_d] = round(controller.error);
       cmdRefArray[i_d] = speedRef;
       i_d++;
+    }
+    else if (i_d == NUM_DIAGNOSTICS_ARRAY)
+    {
+      // do something here
+      // i_d++;
     }
   }
   else
