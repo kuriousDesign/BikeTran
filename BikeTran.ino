@@ -101,7 +101,7 @@ long tempLong;
 float tempFloat;
 
 // DIAGNOSTICS
-#define NUM_DIAGNOSTICS_ARRAY 15
+#define NUM_DIAGNOSTICS_ARRAY 300
 unsigned long lastDisplayed_ms = 0;
 int16_t cmdRefArray[NUM_DIAGNOSTICS_ARRAY];
 int16_t errorArray[NUM_DIAGNOSTICS_ARRAY];
@@ -157,6 +157,9 @@ void setup()
   initializeEncoderSystem();
   // iSerial.debug = true;
   iSerial.setNewMode(RadGear::Modes::ABORTING);
+
+  // Serial.print("This Device ID:");
+  // Serial.println(iSerial.THIS_DEVICE_ID);
 }
 
 void loop()
@@ -738,6 +741,9 @@ void runController()
     {
       errorArray[i_d] = round(controller.error);
       cmdRefArray[i_d] = speedRef;
+      iSerial.debugPrint(String(round(controller.error)));
+      iSerial.debugPrint(", ");
+      iSerial.debugPrintln(String(speedRef));
       i_d++;
     }
     else if (i_d == NUM_DIAGNOSTICS_ARRAY)
@@ -895,9 +901,12 @@ void setupPWM(int pin, long frequency)
 
 void printCurrentPosition()
 {
-  // iSerial.debugPrint("Current Position: ");
-  iSerial.debugPrintln(String(currentPosition)); // Use 1 decimal places for floating-point numbers
-  // iSerial.debugPrintln(dataSize);
+  if (false)
+  {
+    iSerial.debugPrint("Current Position: ");
+    iSerial.debugPrint(String(currentPosition)); // Use 1 decimal places for floating-point numbers
+    iSerial.debugPrintln("deg");
+  }
 }
 
 /////////////////////////////
