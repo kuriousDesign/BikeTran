@@ -336,10 +336,13 @@ void printDiagnosticDataToJsonString(int lenArray)
     for (int i = 0; i < lenArray; i++)
     {
       iSerial.writeString(String(errorArray[i]));
+      // int16_t dummyInt = 1;
+      // iSerial.writeString(String(dummyInt));
       if (i < lenArray - 1)
       {
         iSerial.writeString(", ");
       }
+      delayMicroseconds(200);
     }
   }
   iSerial.writeString("]");
@@ -492,7 +495,7 @@ void handleSerialCmds()
 
   case Cmds::SERIAL_OUTPUT: // prints serial information for use with a serial monitor, not to be used with high frequency (use INFO_CMD for that)
     iSerial.writeCmdChrIdChr();
-    printDiagnosticDataToJsonString(i_d);
+    printDiagnosticDataToJsonString(NUM_DIAGNOSTICS_ARRAY);
     // iSerial.writeString(jsonString);
     iSerial.writeNewline();
     // iSerial.debugPrint("iSerial.status.mode: ");
