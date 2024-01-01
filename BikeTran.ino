@@ -1,5 +1,5 @@
-bool FLIP_POSITIVE = false; // This should normally be false, just used for testing directional differences in motor cmd
-
+bool FLIP_POSITIVE = false;         // This should normally be false, just used for testing directional differences in motor cmd
+bool SHIFT_BUTTONS_DISABLED = true; // if this is true, the shift buttons will be disabled (ignored)
 #include "ISerial.h"
 #include "Encoder.h"
 #include "PDController.h"
@@ -55,12 +55,9 @@ unsigned long lastRead_us = 0;
 unsigned long previousMillis = 0; // Initialize previousMillis to 0
 
 // MOTION PROFILE
-unsigned long startTime = 0; // The start time of the motion profile
-float currentPosition = 0.0; // Current position in revolutions//
-float targetPosition = 1.0;  // Target position in revolutions
+float currentPosition = 0.0; // Current position in degrees//
+float targetPosition = 1.0;  // Target position in degrees
 float currentVelocity = 0.0; // Initialize the stored position
-float maxVelocity = 1.0;     // Maximum velocity in revolutions per second
-float acceleration = 0.1;    // Acceleration in revolutions per second squared
 
 bool sw = false;
 int time_now;
@@ -85,8 +82,8 @@ PDController controller = PDController(1.2, 0.2500); // NOTE: modify these param
 #define NUM_GEARS 12
 #define MIN_POSITION 0.0
 #define MAX_POSITION (MIN_POSITION + float(NUM_GEARS - 1) * 360.0)
-int targetGear = 1;
-int actualGear = 1;
+int targetGear = 1;                       // range is from 1 to NUM_GEARS, does not start at 0
+int actualGear = 1;                       // range is from 1 to NUM_GEARS, does not start at 0
 bool controllerOn = false;                // set this true to activate outputs related to the controller, set to false to kill those outputs
 unsigned long activationStartTime_ms = 0; // the time the controller first became activated
 const int SOLENOID_RETRACT_TIME_MS = 100;
@@ -101,7 +98,7 @@ long tempLong;
 float tempFloat;
 
 // DIAGNOSTICS
-#define NUM_DIAGNOSTICS_ARRAY 300
+#define NUM_DIAGNOSTICS_ARRAY 800
 unsigned long lastDisplayed_ms = 0;
 int16_t cmdRefArray[NUM_DIAGNOSTICS_ARRAY];
 int16_t errorArray[NUM_DIAGNOSTICS_ARRAY];
@@ -185,7 +182,20 @@ void loop()
     break;
   case RadGear::Modes::ERROR:
     turnAllOff();
-    iSerial.setNewMode(RadGear::Modes::INACTIVE);
+
+    if (iSerial.status.step == 0)
+    {
+      turnAllOff();
+      iSerial.status.step = 1;
+    }
+    else if (iSerial.status.step == 1)
+    {
+      if (iSerial.modeTime() > 10000)
+      {
+        iSerial.setNewMode(RadGear::Modes::INACTIVE);
+      }
+    }
+
     break;
   case RadGear::Modes::INACTIVE:
     turnAllOff();
@@ -268,17 +278,6 @@ void loop()
         turnOffController();
         iSerial.setNewMode(RadGear::Modes::ERROR);
       }
-
-      if (iSerial.status.mode != RadGear::Modes::SHIFTING)
-      {
-        for (int i = 0; i < i_d; i++)
-        {
-          iSerial.debugPrint(String(errorArray[i]));
-          iSerial.debugPrint(", ");
-          iSerial.debugPrintln(String(cmdRefArray[i]));
-        }
-        // jsonString = convertDiagnosticDataToJsonString(i_d);
-      }
     }
 
     break;
@@ -330,31 +329,38 @@ void printDiagnosticDataToJsonString(int lenArray)
   iSerial.writeString("{\"error\": ");
 
   iSerial.writeString("[");
-
+  int16_t DELAY_TIME_US = 200;
   if (lenArray > 0)
   {
     for (int i = 0; i < lenArray; i++)
     {
+      while (Serial.availableForWrite() <= 8)
+      {
+        delayMicroseconds(DELAY_TIME_US);
+      }
+
       iSerial.writeString(String(errorArray[i]));
-      // int16_t dummyInt = 1;
-      // iSerial.writeString(String(dummyInt));
+
       if (i < lenArray - 1)
       {
         iSerial.writeString(", ");
       }
-      delayMicroseconds(200);
     }
   }
+
+  delayMicroseconds(500); // allow buffer to build up
   iSerial.writeString("]");
-
   iSerial.writeString(", \"cmd\": ");
-
   iSerial.writeString("[");
 
   if (lenArray > 0)
   {
     for (int i = 0; i < lenArray; i++)
     {
+      while (Serial.availableForWrite() <= 8)
+      {
+        delayMicroseconds(DELAY_TIME_US);
+      }
       iSerial.writeString(String(cmdRefArray[i]));
       if (i < lenArray - 1)
       {
@@ -362,14 +368,26 @@ void printDiagnosticDataToJsonString(int lenArray)
       }
     }
   }
+
+  delayMicroseconds(700); // allow buffer to build up
   iSerial.writeString("]");
 
-  iSerial.writeString(", \"numOfDataPoints\": " + String(lenArray));
+  iSerial.writeString(", \"targetGear\": " + String(targetGear));
+  delayMicroseconds(700); // allow buffer to build up
+  iSerial.writeString(", \"targetPosition\": " + String(targetPosition));
+  delayMicroseconds(700); // allow buffer to build up
+  iSerial.writeString(", \"actualGear\": " + String(actualGear));
+  delayMicroseconds(700); // allow buffer to build up
+  iSerial.writeString(", \"actualPosition\": " + String(currentPosition));
 
+  delayMicroseconds(700); // allow buffer to build up
+  iSerial.writeString(", \"numOfDataPoints\": ");
+  delayMicroseconds(700); // allow buffer to build up
+  iSerial.writeString(String(lenArray));
+
+  delayMicroseconds(700); // allow buffer to build up
   iSerial.writeString(", \"mode\": " + String(iSerial.status.mode));
-
   iSerial.writeString("}"); // closing the innerDoc
-
   iSerial.writeString("}"); // closing the outerDoc
 
   // Create the inner object JSON string
@@ -495,7 +513,7 @@ void handleSerialCmds()
 
   case Cmds::SERIAL_OUTPUT: // prints serial information for use with a serial monitor, not to be used with high frequency (use INFO_CMD for that)
     iSerial.writeCmdChrIdChr();
-    printDiagnosticDataToJsonString(NUM_DIAGNOSTICS_ARRAY);
+    printDiagnosticDataToJsonString(i_d);
     // iSerial.writeString(jsonString);
     iSerial.writeNewline();
     // iSerial.debugPrint("iSerial.status.mode: ");
@@ -739,20 +757,24 @@ void runController()
     {
       digitalWrite(PWM_PIN, LOW);
     }
-
-    if (i_d < NUM_DIAGNOSTICS_ARRAY)
+    // printing the diagnostic data as csv stream
+    if (false)
     {
-      errorArray[i_d] = round(controller.error);
-      cmdRefArray[i_d] = speedRef;
       iSerial.debugPrint(String(round(controller.error)));
       iSerial.debugPrint(", ");
       iSerial.debugPrintln(String(speedRef));
+    }
+
+    if (i_d < NUM_DIAGNOSTICS_ARRAY)
+    {
+      // storing diagnostic data into arrays
+      errorArray[i_d] = round(controller.error);
+      cmdRefArray[i_d] = speedRef;
       i_d++;
     }
     else if (i_d == NUM_DIAGNOSTICS_ARRAY)
     {
       // do something here
-      // i_d++;
     }
   }
   else
@@ -774,7 +796,12 @@ void runController()
 
 int checkForGearShiftRequests()
 {
-  int shiftReqType = shifter.checkShiftReq();
+  int shiftReqType = Shifter::ShiftTypes::NONE;
+  if (!SHIFT_BUTTONS_DISABLED)
+  {
+    shiftReqType = shifter.checkShiftReq();
+  }
+
   if (shiftReqType == Shifter::ShiftTypes::NONE)
   {
     shiftReqType = serialShiftReqType;
@@ -910,60 +937,4 @@ void printCurrentPosition()
     iSerial.debugPrint(String(currentPosition)); // Use 1 decimal places for floating-point numbers
     iSerial.debugPrintln("deg");
   }
-}
-
-/////////////////////////////
-// UNUSED CODE
-///////////////////////////
-
-// OPEN LOOP POSITION TRACKING
-
-float updateOpenLoopPosition(float velocity, unsigned long currentTime)
-{
-  unsigned long elapsedTime = currentTime - previousMillis;
-  currentPosition += velocity * (elapsedTime / 1000.0); // Integration formula
-  previousMillis = currentTime;                         // Update previousMillis
-  return currentPosition;
-}
-
-// Function to calculate the position based on time
-float trapezoidalMotionProfile(unsigned long currentTime)
-{
-  // Calculate elapsed time since the motion profile started
-  unsigned long elapsedTime = currentTime - startTime;
-
-  // Calculate the time required to reach maximum velocity (acceleration phase)
-  float timeToMaxVelocity = maxVelocity / acceleration;
-
-  // Calculate the time required for the deceleration phase (same as acceleration time)
-  float timeToDecelerate = timeToMaxVelocity;
-
-  // Calculate the distance traveled during acceleration and deceleration phases
-  float distanceAccelDecel = 0.5 * acceleration * timeToMaxVelocity * timeToMaxVelocity;
-
-  // Calculate the remaining distance to travel at maximum velocity
-  float remainingDistance = targetPosition - (2 * distanceAccelDecel);
-
-  if (elapsedTime < timeToMaxVelocity)
-  {
-    // In the acceleration phase
-    currentVelocity = acceleration * elapsedTime;
-    currentPosition = 0.5 * acceleration * elapsedTime * elapsedTime;
-  }
-  else if (elapsedTime < (timeToMaxVelocity + timeToDecelerate))
-  {
-    // In the constant velocity phase
-    float timeInMaxVelocity = elapsedTime - timeToMaxVelocity;
-    currentVelocity = maxVelocity;
-    currentPosition = distanceAccelDecel + maxVelocity * timeInMaxVelocity;
-  }
-  else if (currentPosition < targetPosition)
-  {
-    // In the deceleration phase
-    float timeInDeceleration = elapsedTime - (timeToMaxVelocity + timeToDecelerate);
-    currentVelocity = maxVelocity - (acceleration * timeInDeceleration);
-    currentPosition = targetPosition - (0.5 * acceleration * timeInDeceleration * timeInDeceleration);
-  }
-
-  return currentVelocity;
 }
