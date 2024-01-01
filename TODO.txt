@@ -1,5 +1,6 @@
 STATUS      DESCRIPTION
 
+DONE        Verify from older code that the pd control law error uses degrees and not revs
             Homing Sequence 
             Diagnostic Output (is length of arrays too long?) 
             DEBUG: diagnostic output keeps printing ~~, possible issue with data recording during shifting, try sending pre-filled array with value 13s
