@@ -74,11 +74,11 @@ int serialShiftReqType = 0;
 int serialShiftTargetGearParam = 0;
 
 // MOTOR CONTROL LAW CONTROLLER
-const double MAX_SPEEDREF_PD = 60.0; // max speedRef during PD control mode
+const double MAX_SPEEDREF_PD = 70.0; // max speedRef during PD control mode
 const int NUDGE_TIME_MS = 70;
-const double NOMINAL_SPEEDREF = 75;                  // nominal speedRef when not near the target
-const double NEAR_TARGET_DIST = 120.0;               // distance to be considered near the target, where mode switches to PD control
-PDController controller = PDController(1.2, 0.2500); // NOTE: modify these parameters to improve the control, start with pd set to zero
+const double NOMINAL_SPEEDREF = 75;                   // nominal speedRef when not near the target
+const double NEAR_TARGET_DIST = 65.0;                 // distance to be considered near the target, where mode switches to PD control
+PDController controller = PDController(1.25, 0.2500); // NOTE: modify these parameters to improve the control, start with pd set to zero
 #define NUM_GEARS 12
 #define MIN_POSITION 0.0
 #define MAX_POSITION (MIN_POSITION + float(NUM_GEARS - 1) * 360.0)
@@ -267,8 +267,9 @@ void loop()
       if (gearChangeReq)
       {
         // activateController(); // this will restart the activation time
+        iSerial.debugPrintln("gearChangeReq...");
       }
-      else if (atTargetAndStill)
+      else if (atTargetAndStill || atTarget) // TODO: switch logic back to just use atTargetAndStill
       {
         printCurrentPosition();
         iSerial.setNewMode(RadGear::Modes::IDLE);
@@ -537,7 +538,7 @@ bool checkPosition()
 {
   actualGear = round(currentPosition / 360.0) + 1;
 
-  if (abs(targetPosition - currentPosition) < 10.0)
+  if (abs(targetPosition - currentPosition) < 5.0)
   {
     actualGear = targetGear;
     return true;
@@ -585,7 +586,12 @@ void runAll()
     currentPosition = tracker.calculatePosition(encoder.position);
     currentVelocity = tracker.calculateFilteredVelocity();
   }
-  atTarget = checkPosition();
+  bool temp = checkPosition();
+  if (!atTarget && temp)
+  {
+    iSerial.debugPrintln("atTarget!");
+  }
+  atTarget = temp;
   atTargetAndStill = atTarget && !tracker.isMoving;
   if (attemptedReading)
   {
@@ -939,8 +945,8 @@ void printCurrentPosition()
     iSerial.debugPrint(String(currentPosition)); // Use 1 decimal places for floating-point numbers
     iSerial.debugPrintln("deg");
 
-    iSerial.debugPrint("Encoder Raw Position: ");
-    iSerial.debugPrint(String(encoder.position)); // Use 1 decimal places for floating-point numbers
-    iSerial.debugPrintln("deg");
+    // iSerial.debugPrint("Encoder Raw Position: ");
+    // iSerial.debugPrint(String(encoder.position)); // Use 1 decimal places for floating-point numbers
+    // iSerial.debugPrintln("deg");
   }
 }
