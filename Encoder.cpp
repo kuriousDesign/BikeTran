@@ -57,6 +57,8 @@ bool Encoder::readEncoder()
                 sign = -1.0;
             }
             Encoder::position = sign * parsePositionData();
+            // debugPrint("encoder raw position: ");
+            // debugPrintln(String(Encoder::position));
         }
         if (result != dataArray[4])
         {
@@ -80,8 +82,8 @@ float Encoder::parsePositionData()
 {
     if (dataArray[0] != READ_ABS_POS)
     {
-        // Serial.print("Control Field Byte did not match 0x02, it was : ");
-        // Serial.println(dataArray[0]);
+        // debugPrint("Control Field Byte did not match 0x02, it was : ");
+        // debugPrintln(String(dataArray[0]));
     }
     uint16_t counts = dataArray[2] + (dataArray[3] << 8);
     return (float(counts) / CPR) * 360.0; // output angle between 0.0 and 359.9 deg
@@ -132,4 +134,5 @@ void Encoder::debugPrintln(String msg)
 void Encoder::setDebug(bool setOn)
 {
     debug = setOn;
+    debugPrintln("encoder debug now available");
 }

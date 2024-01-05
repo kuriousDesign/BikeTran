@@ -157,6 +157,8 @@ void setup()
 
   // Serial.print("This Device ID:");
   // Serial.println(iSerial.THIS_DEVICE_ID);
+
+  // encoder.setDebug(true);
 }
 
 void loop()
@@ -677,7 +679,7 @@ void initializeEncoderSystem()
     currentPosition = tracker.calculatePosition(encoder.position);
     currentVelocity = tracker.calculateFilteredVelocity();
     // iSerial.debugPrintln(currentPosition);
-    tracker.zeroPosition();
+    tracker.zeroPosition(encoder.position);
     delay(200);
   }
 
@@ -931,10 +933,14 @@ void setupPWM(int pin, long frequency)
 
 void printCurrentPosition()
 {
-  if (false)
+  if (true)
   {
     iSerial.debugPrint("Current Position: ");
     iSerial.debugPrint(String(currentPosition)); // Use 1 decimal places for floating-point numbers
+    iSerial.debugPrintln("deg");
+
+    iSerial.debugPrint("Encoder Raw Position: ");
+    iSerial.debugPrint(String(encoder.position)); // Use 1 decimal places for floating-point numbers
     iSerial.debugPrintln("deg");
   }
 }
