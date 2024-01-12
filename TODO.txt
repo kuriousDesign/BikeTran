@@ -1,9 +1,10 @@
 STATUS      DESCRIPTION
 
+            study dead time between encoder readings to know if i can afford to send info updates and diagnostic data
+            phase out serial_output cmd for diagnostic data and use info_cmd with InfoTypes::DIAGNOSTIC_DATA instead
 DONE        Verify from older code that the pd control law error uses degrees and not revs
             Homing Sequence 
-            Diagnostic Output (is length of arrays too long?) 
-            DEBUG: diagnostic output keeps printing ~~, possible issue with data recording during shifting, try sending pre-filled array with value 13s
-Test        ROS2 Node Driver for UI
-            DEBUG: encoder not providing accurate readings
+DONE        DEBUG: diagnostic output keeps printing ~~, possible issue with data recording during shifting, try sending pre-filled array with value 13s
+DONE        ROS2 Node Driver for UI
+DONE        DEBUG: encoder not providing accurate readings
 DONE        DEBUG: when mega powers it up prints out something weird with an 'f' at the beginnning, won't connect to serial driver

@@ -73,6 +73,16 @@ int shiftTargetGearParam = 0;
 int serialShiftReqType = 0;
 int serialShiftTargetGearParam = 0;
 
+// SHIFT DATA
+#define SHIFTDATAPACKETSIZE 6 // 6 bytes
+struct ShiftData
+{
+  uint8_t targetGear = 0;
+  uint8_t actualGear = 0;
+  int16_t targetPosition = 0;
+  int16_t actualPosition = 0;
+};
+ShiftData shiftData;
 // MOTOR CONTROL LAW CONTROLLER
 const double MAX_SPEEDREF_PD = 70.0; // max speedRef during PD control mode
 const int NUDGE_TIME_MS = 70;
@@ -96,12 +106,29 @@ int16_t speedRef = 0;
 ISerial iSerial;
 long tempLong;
 float tempFloat;
+// Info Types
+enum InfoTypes : uint8_t
+{
+  SHIFT_DATA = 0,
+  DIAGNOSTIC_DATA = 1,
+};
 
 // DIAGNOSTICS
 #define NUM_DIAGNOSTICS_ARRAY 800
+struct DiagnosticData
+{
+  int16_t numOfDataPoints;
+  int16_t cmd[NUM_DIAGNOSTICS_ARRAY];
+  int16_t error[NUM_DIAGNOSTICS_ARRAY];
+  uint8_t targetGear = 0;
+  uint8_t actualGear = 0;
+  int16_t targetPosition = 0;
+  int16_t actualPosition = 0;
+};
 unsigned long lastDisplayed_ms = 0;
-int16_t cmdRefArray[NUM_DIAGNOSTICS_ARRAY];
-int16_t errorArray[NUM_DIAGNOSTICS_ARRAY];
+DiagnosticData diagnosticData;
+// int16_t cmdRefArray[NUM_DIAGNOSTICS_ARRAY];
+
 int i_d = 0;
 String jsonString = "";
 
@@ -135,6 +162,8 @@ public:
 void setup()
 {
   iSerial.init();
+  iSerial.THIS_DEVICE_ID = BIKE_MEGA_ID;
+  iSerial.setAutoSendStatus(true); // status updates sent when mode changes
 
   // initialize solenoid stopper
   pinMode(PIN_SOL_STOPPER, OUTPUT);
@@ -188,6 +217,7 @@ void loop()
     if (iSerial.status.step == 0)
     {
       turnAllOff();
+      sendShiftData();
       iSerial.status.step = 1;
     }
     else if (iSerial.status.step == 1)
@@ -325,6 +355,7 @@ void loop()
 
 void printDiagnosticDataToJsonString(int lenArray)
 {
+  diagnosticData.numOfDataPoints = lenArray;
 
   iSerial.writeString("{\"diagnostic\": ");
 
@@ -342,7 +373,7 @@ void printDiagnosticDataToJsonString(int lenArray)
         delayMicroseconds(DELAY_TIME_US);
       }
 
-      iSerial.writeString(String(errorArray[i]));
+      iSerial.writeString(String(diagnosticData.error[i]));
 
       if (i < lenArray - 1)
       {
@@ -364,7 +395,7 @@ void printDiagnosticDataToJsonString(int lenArray)
       {
         delayMicroseconds(DELAY_TIME_US);
       }
-      iSerial.writeString(String(cmdRefArray[i]));
+      iSerial.writeString(String(diagnosticData.cmd[i]));
       if (i < lenArray - 1)
       {
         iSerial.writeString(", ");
@@ -375,26 +406,25 @@ void printDiagnosticDataToJsonString(int lenArray)
   delayMicroseconds(700); // allow buffer to build up
   iSerial.writeString("]");
 
-  iSerial.writeString(", \"targetGear\": " + String(targetGear));
+  iSerial.writeString(", \"targetGear\": " + String(diagnosticData.targetGear));
   delayMicroseconds(700); // allow buffer to build up
-  iSerial.writeString(", \"targetPosition\": " + String(targetPosition));
+  iSerial.writeString(", \"targetPosition\": " + String(diagnosticData.targetPosition));
   delayMicroseconds(700); // allow buffer to build up
-  iSerial.writeString(", \"actualGear\": " + String(actualGear));
+  iSerial.writeString(", \"actualGear\": " + String(diagnosticData.actualGear));
   delayMicroseconds(700); // allow buffer to build up
-  iSerial.writeString(", \"actualPosition\": " + String(currentPosition));
+  iSerial.writeString(", \"actualPosition\": " + String(diagnosticData.actualPosition));
 
   delayMicroseconds(700); // allow buffer to build up
   iSerial.writeString(", \"numOfDataPoints\": ");
   delayMicroseconds(700); // allow buffer to build up
-  iSerial.writeString(String(lenArray));
+  iSerial.writeString(String(diagnosticData.numOfDataPoints));
 
-  delayMicroseconds(700); // allow buffer to build up
-  iSerial.writeString(", \"mode\": " + String(iSerial.status.mode));
+  delayMicroseconds(700);   // allow buffer to build up
   iSerial.writeString("}"); // closing the innerDoc
   iSerial.writeString("}"); // closing the outerDoc
 
   // Create the inner object JSON string
-  // String innerJson = "{\"error\": " + errorArrayString + ", \"cmd\": " + cmdArrayString + ", \"numOfDataPoints\": " + String(lenArray) + "}";
+  // String innerJson = "{\"error\": " + diagnosticData.errorString + ", \"cmd\": " + cmdArrayString + ", \"numOfDataPoints\": " + String(lenArray) + "}";
 
   // Create the outer object JSON string and nest the inner object inside it
   // String outerJson = "{\"diagnostic\": " + innerJson + "}";
@@ -404,52 +434,6 @@ void printDiagnosticDataToJsonString(int lenArray)
 
   // return outerJson;
 }
-
-/*
-String convertDiagnosticDataToJsonStringOld(int lenArray)
-{
-  // Define the JSON object
-  const size_t capacity = JSON_ARRAY_SIZE(lenArray) + JSON_OBJECT_SIZE(3);
-  DynamicJsonDocument doc(capacity);
-
-  if (lenArray > 0)
-  {
-    // Create arrays and store them in the JSON object
-    JsonArray errorArrayJson = doc.createNestedArray("error");
-    for (size_t i = 0; i < lenArray; ++i)
-    {
-      errorArrayJson.add(errorArray[i]);
-    }
-
-    JsonArray cmdArrayJson = doc.createNestedArray("cmdRef");
-    for (size_t i = 0; i < lenArray; ++i)
-    {
-      cmdArrayJson.add(cmdRefArray[i]);
-    }
-  }
-  else
-  {
-    doc["error"] = "";
-    doc["cmdRef"] = "";
-  }
-  // Add the "numOfDataPoints" key
-  doc["numOfDataPoints"] = lenArray; // Replace 4 with the actual number of data points
-
-  // Create the outer JSON object and nest the inner one inside
-  const size_t outerCapacity = JSON_OBJECT_SIZE(1);
-  DynamicJsonDocument outerDoc(outerCapacity);
-  outerDoc["diagnostic"] = doc;
-
-  // Serialize outer JSON object to a string
-  String jsonStr;
-  serializeJson(outerDoc, jsonStr);
-
-  // Print the JSON string
-  iSerial.debugPrintln(jsonStr);
-
-  return jsonStr;
-}
-*/
 
 void processRelPosCmd()
 {
@@ -776,8 +760,8 @@ void runController()
     if (i_d < NUM_DIAGNOSTICS_ARRAY)
     {
       // storing diagnostic data into arrays
-      errorArray[i_d] = round(controller.error);
-      cmdRefArray[i_d] = speedRef;
+      diagnosticData.error[i_d] = round(controller.error);
+      diagnosticData.cmd[i_d] = speedRef;
       i_d++;
     }
     else if (i_d == NUM_DIAGNOSTICS_ARRAY)
@@ -949,4 +933,45 @@ void printCurrentPosition()
     // iSerial.debugPrint(String(encoder.position)); // Use 1 decimal places for floating-point numbers
     // iSerial.debugPrintln("deg");
   }
+}
+
+void sendInfoDataHeader(uint8_t infoType)
+{
+  String headerString = Cmds::INFO_CMD + String(infoType);
+  iSerial.writeString(headerString);
+}
+
+void sendShiftData()
+{
+  sendInfoDataHeader(InfoTypes::SHIFT_DATA); // MODIFY THIS PER INFO TYPE
+  char data[SHIFTDATAPACKETSIZE];
+  serializeShiftData(&shiftData, data); // MODIFY THIS PER INFO TYPE
+  iSerial.taskPrintData(data, SHIFTDATAPACKETSIZE);
+  iSerial.writeNewline();
+}
+
+// converts the ShiftData struct data into byte array to be used for sending over serial port
+void serializeShiftData(ShiftData *msgPacket, char *data)
+{
+  // sending uint8_t vals
+  uint8_t *q = (uint8_t *)data;
+  *q = msgPacket->targetGear;
+  q++;
+  *q = msgPacket->actualGear;
+  q++;
+
+  // sending int16_t vals
+  int16_t *q16 = (int16_t *)q;
+  *q16 = msgPacket->targetPosition;
+  q16++;
+  *q16 = msgPacket->actualPosition;
+  q16++;
+
+  /*
+  float *f = (float *)q;
+  *f = msgPacket->actualVelocity;
+  f++;
+  *f = msgPacket->referenceVelocity;
+  f++;
+  */
 }
