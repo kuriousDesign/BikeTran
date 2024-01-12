@@ -88,7 +88,9 @@ struct ShiftData
 };
 ShiftData shiftData;
 // MOTOR CONTROL LAW CONTROLLER
-const double MAX_SPEEDREF_PD = 70.0; // max speedRef during PD control mode
+bool homedStatus = false;
+const double MAX_SPEEDREF_PD = 70.0;   // max speedRef during PD control mode
+const double NUDGE_POWER_PERC = 255.0; // speedRef during nudging
 const int NUDGE_TIME_MS = 70;
 const double NOMINAL_SPEEDREF = 75;                   // nominal speedRef when not near the target
 const double NEAR_TARGET_DIST = 65.0;                 // distance to be considered near the target, where mode switches to PD control
@@ -182,7 +184,7 @@ void setup()
 
   // initialize motor controller outputs
   pinMode(DIR_PIN, OUTPUT);
-  digitalWrite(DIR_PIN, LOW);          //
+  setDirPinPositive();
   setupPWM(PWM_PIN, PWM_FREQUENCY_HZ); // initialize motor control pin
 
   initializeEncoderSystem();
@@ -241,19 +243,26 @@ void loop()
   case RadGear::Modes::RESETTING:
     // TODO: insert homing logic here, home switch should be wired n.c.
 
-    // 1. Check home sw, if ON go to 2. else go to 1B
+    if (iSerial.status.step == 0)
+    {
+      turnAllOff();
+      runHomingRoutine(true);
+      iSerial.status.step = 1;
+    }
+    else if (iSerial.status.step == 1)
+    {
+      int homingStatus = runHomingRoutine(false);
 
-    // 1B. Record initial encoder position. Rotate motor slowly in pos dir, if encoder position doesn't change, jump to end, otherwise wait for home sw to turn off.
-
-    // 1C. Stop motor, go to step 4
-
-    // 2. Retract solenoid, then hold solenoid retracted low power
-
-    // 3. Rotate motor in slow speed in neg dir (constant speed ref output from pwm pin) until home switch turns off (actuated), record encoder position and release solenoid
-
-    // 4. Reduce motor speed to turtle speed and keep turning in neg dir until encoder value stops changing (go to next step), other wise if encoder value is more than 1 rev from recorded value in prev step, then trigger error
-
-    // 5. Stop motor and zero the encoder
+      if (100 == homingStatus)
+      {
+        iSerial.setNewMode(RadGear::Modes::IDLE);
+        shiftData.targetGear = motionData.actualGear;
+      }
+      else if (911 == homingStatus)
+      {
+        iSerial.setNewMode(RadGear::Modes::ERROR);
+      }
+    }
 
     /*
     digitalWrite(PWM_PIN, LOW);
@@ -273,8 +282,7 @@ void loop()
     // delay(1000);
     digitalWrite(PIN_SOL_STOPPER, LOW);
     */
-    iSerial.setNewMode(RadGear::Modes::IDLE);
-    shiftData.targetGear = motionData.actualGear;
+
     break;
 
   case RadGear::Modes::IDLE:
@@ -308,6 +316,7 @@ void loop()
       else if (atTargetAndStill || atTarget) // TODO: switch logic back to just use atTargetAndStill
       {
         // printCurrentPosition();
+        turnOffController();
         iSerial.setNewMode(RadGear::Modes::IDLE);
       }
 
@@ -719,7 +728,8 @@ void runController()
     }
     else if (activeTime_ms < SOLENOID_RETRACT_TIME_MS + NUDGE_TIME_MS && !tracker.isMoving)
     {
-      speedRef = 255 * controller.error / abs(controller.error);
+      double nudgeDirection = controller.error / abs(controller.error);
+      speedRef = 255 * NUDGE_POWER_PERC * nudgeDirection;
       analogWrite(PIN_SOL_STOPPER, 255);
     }
     else if (abs(controller.error) > NEAR_TARGET_DIST)
@@ -736,17 +746,13 @@ void runController()
     }
 
     // SET THE DIRECTION PIN
-    if (speedRef < 0.0 && !FLIP_POSITIVE)
+    if (speedRef >= 0.0)
     {
-      digitalWrite(DIR_PIN, HIGH);
-    }
-    else if (speedRef > 0.0 && FLIP_POSITIVE)
-    {
-      digitalWrite(DIR_PIN, HIGH);
+      setDirPinPositive();
     }
     else
     {
-      digitalWrite(DIR_PIN, LOW);
+      setDirPinNegative();
     }
 
     // SET THE PWM OUTPUT TO THE MOTOR BOARD IF ENOUGH TIME HAS BEEN ALLOTTED TO ALLOW SOLENOID TO RETRACT
@@ -1015,4 +1021,236 @@ void serializeMotionData(MotionData *msgPacket, char *data)
   *f = msgPacket->actualVelocity;
   f++;
   */
+}
+
+void setDirPinPositive()
+{
+  if (!FLIP_POSITIVE)
+  {
+    digitalWrite(DIR_PIN, LOW);
+  }
+  else
+  {
+    digitalWrite(DIR_PIN, HIGH);
+  }
+}
+
+void setDirPinNegative()
+{
+  if (!FLIP_POSITIVE)
+  {
+    digitalWrite(DIR_PIN, HIGH);
+  }
+  else
+  {
+    digitalWrite(DIR_PIN, LOW);
+  }
+}
+
+int runHomingRoutine(bool resetCmd)
+{
+  // new logic to write:
+
+  // perform series of nudges with solenoids off until it is determined that the motor is in a locked position
+  // nudge in a positive direction if the homeSw is detects the target, nudge negitive if homeSw doesn't not detect the target
+
+  static bool homingFirstScan = false;
+  static int prevStep = 0;
+  static int homingStep = 0;
+  static long stepStartedTime = millis();
+  static int initialPositionReading = 0;
+  static int nudgeRetryCnt = 0;
+  const int NUDGE_MAX_RETRIES = 5;
+  bool homeSw = digitalRead(PIN_HOME_SW);
+
+  if (homingStep != prevStep)
+  {
+    homingFirstScan = true;
+    stepStartedTime = millis();
+    prevStep = homingStep;
+  }
+  else
+  {
+    homingFirstScan = false;
+  }
+  // calculate the time since the step started
+  long stepTime = millis() - stepStartedTime;
+
+  if (resetCmd)
+  {
+    homingStep = 0;
+    prevStep = 0;
+    nudgeRetryCnt = 0;
+    stepStartedTime = millis();
+  }
+
+  switch (homingStep)
+  {
+  case 0: // RESET: turn everything off
+    turnAllOff();
+    homingStep = 10;
+    break;
+  case 10: // determine the nudge direction based on homeSw
+    if (homeSw)
+    {
+      homingStep = 20;
+    }
+    else
+    {
+      homingStep = 30;
+    }
+    break;
+  case 20: // NUDGE POSITIVE
+    // Record initial encoder position.
+    // Then nudge motor in pos dir
+    setDirPinPositive();
+
+    if (homingFirstScan)
+    {
+      nudgeRetryCnt++;
+      initialPositionReading = motionData.actualPosition;
+    }
+    else if (stepTime > NUDGE_TIME_MS)
+    {
+      digitalWrite(PWM_PIN, LOW);
+      homingStep = 21;
+    }
+    else
+    {
+      analogWrite(PWM_PIN, 255 * NUDGE_POWER_PERC);
+    }
+    break;
+  case 21: // Check if nudge moved
+    if (abs(initialPositionReading - motionData.actualPosition) < 5.0)
+    {
+      // jump to final steps
+      digitalWrite(PWM_PIN, LOW);
+      homingStep = 50;
+    }
+    else
+    {
+      if (homeSw)
+      {
+        nudgeRetryCnt = 0;
+        homingStep = 30;
+      }
+      else if (nudgeRetryCnt < NUDGE_MAX_RETRIES)
+      {
+        homingStep = 20;
+      }
+      else
+      {
+        homingStep = 911;
+      }
+    }
+    break;
+
+  case 30: // NUDGE NEGATIVE
+    // Record initial encoder position.
+    // Then nudge motor in pos dir
+    setDirPinNegative();
+
+    if (homingFirstScan)
+    {
+      nudgeRetryCnt++;
+      initialPositionReading = motionData.actualPosition;
+    }
+    else if (stepTime > NUDGE_TIME_MS)
+    {
+      digitalWrite(PWM_PIN, LOW);
+      homingStep = 31;
+    }
+    else
+    {
+      analogWrite(PWM_PIN, 255 * NUDGE_POWER_PERC);
+    }
+    break;
+
+  case 31: // Check if nudge moved
+    if (abs(initialPositionReading - motionData.actualPosition) < 5.0)
+    {
+      // jump to final steps
+      digitalWrite(PWM_PIN, LOW);
+      homingStep = 50;
+    }
+    else
+    {
+      if (nudgeRetryCnt < NUDGE_MAX_RETRIES)
+      {
+        homingStep = 30;
+      }
+      else
+      {
+        homingStep = 911;
+      }
+    }
+    break;
+
+  case 40: // Zero the encoder
+    if (homingFirstScan)
+    {
+      turnAllOff();
+      tracker.zeroPosition(encoder.position);
+    }
+    else
+    {
+      homingStep = 50;
+    }
+    break;
+
+  case 50: // Check homeSw Status
+    if (homeSw)
+    {
+      homingStep = 80;
+    }
+    else
+    {
+      homingStep = 60;
+    }
+    break;
+  case 60: // down shift
+    if (homingFirstScan)
+    {
+      shiftData.targetPosition = motionData.actualPosition - 360.0;
+      activateController();
+      // initialize the runController, signal downshift request
+    }
+    else if (atTargetAndStill || atTarget) // TODO: switch logic back to just use atTargetAndStill
+    {
+      // printCurrentPosition();
+      turnOffController();
+      homingStep = 50;
+    }
+
+    if (controllerErrorCode > 0)
+    {
+      printCurrentPosition();
+      turnOffController();
+      homingStep = 911;
+    }
+    break;
+  case 80: // zero and set homedStatus
+    if (homingFirstScan)
+    {
+      tracker.zeroPosition(encoder.position);
+      homedStatus = true;
+      homingStep = 100;
+    }
+    break;
+  case 100: // DONE
+    if (homingFirstScan)
+    {
+      // DO NOTHING
+    }
+    break;
+  case 911: // ERROR
+    if (homingFirstScan)
+    {
+      turnAllOff();
+      // DO NOTHING
+    }
+    break;
+
+    return homingStep;
+  }
 }
