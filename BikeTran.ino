@@ -55,9 +55,14 @@ unsigned long lastRead_us = 0;
 unsigned long previousMillis = 0; // Initialize previousMillis to 0
 
 // MOTION PROFILE
-float currentPosition = 0.0; // Current position in degrees//
-float targetPosition = 1.0;  // Target position in degrees
-float currentVelocity = 0.0; // Initialize the stored position
+#define MOTIONDATAPACKETSIZE 5 // the floats are rounded to int16_t during serial transmission
+struct MotionData
+{
+  uint8_t actualGear = 1; // range is from 1 to NUM_GEARS, does not start at 0
+  float actualPosition = 0.0;
+  float actualVelocity = 0.0; // Initialize the stored position
+};
+MotionData motionData;
 
 bool sw = false;
 int time_now;
@@ -74,13 +79,12 @@ int serialShiftReqType = 0;
 int serialShiftTargetGearParam = 0;
 
 // SHIFT DATA
-#define SHIFTDATAPACKETSIZE 6 // 6 bytes
+#define SHIFTDATAPACKETSIZE 5 // 5 bytes
 struct ShiftData
 {
-  uint8_t targetGear = 0;
-  uint8_t actualGear = 0;
+  uint8_t targetGear = 1; // range is from 1 to NUM_GEARS, does not start at 0
   int16_t targetPosition = 0;
-  int16_t actualPosition = 0;
+  int16_t startingPosition = 0;
 };
 ShiftData shiftData;
 // MOTOR CONTROL LAW CONTROLLER
@@ -92,8 +96,8 @@ PDController controller = PDController(1.25, 0.2500); // NOTE: modify these para
 #define NUM_GEARS 12
 #define MIN_POSITION 0.0
 #define MAX_POSITION (MIN_POSITION + float(NUM_GEARS - 1) * 360.0)
-int targetGear = 1;                       // range is from 1 to NUM_GEARS, does not start at 0
-int actualGear = 1;                       // range is from 1 to NUM_GEARS, does not start at 0
+// // int targetGear = 1;                       // range is from 1 to NUM_GEARS, does not start at 0
+// int actualGear = 1;                       // range is from 1 to NUM_GEARS, does not start at 0
 bool controllerOn = false;                // set this true to activate outputs related to the controller, set to false to kill those outputs
 unsigned long activationStartTime_ms = 0; // the time the controller first became activated
 const int SOLENOID_RETRACT_TIME_MS = 100;
@@ -110,7 +114,8 @@ float tempFloat;
 enum InfoTypes : uint8_t
 {
   SHIFT_DATA = 0,
-  DIAGNOSTIC_DATA = 1,
+  MOTION_DATA = 1,
+  DIAGNOSTIC_DATA = 2,
 };
 
 // DIAGNOSTICS
@@ -207,7 +212,6 @@ void loop()
     break;
   case RadGear::Modes::KILLED:
     turnAllOff();
-    printCurrentPosition();
     // solenoids[Solenoids::STOPPER].changeMode(Solenoid::ON, 255);
     iSerial.setNewMode(RadGear::Modes::INACTIVE);
     break;
@@ -217,7 +221,7 @@ void loop()
     if (iSerial.status.step == 0)
     {
       turnAllOff();
-      sendShiftData();
+      sendMotionData();
       iSerial.status.step = 1;
     }
     else if (iSerial.status.step == 1)
@@ -270,13 +274,15 @@ void loop()
     digitalWrite(PIN_SOL_STOPPER, LOW);
     */
     iSerial.setNewMode(RadGear::Modes::IDLE);
-    targetGear = actualGear;
+    shiftData.targetGear = motionData.actualGear;
     break;
 
   case RadGear::Modes::IDLE:
     if (iSerial.status.step == 0)
     {
       turnAllOff();
+      sendMotionData();
+      sendShiftData();
       iSerial.status.step = 1;
     }
     if (gearChangeReq)
@@ -301,7 +307,7 @@ void loop()
       }
       else if (atTargetAndStill || atTarget) // TODO: switch logic back to just use atTargetAndStill
       {
-        printCurrentPosition();
+        // printCurrentPosition();
         iSerial.setNewMode(RadGear::Modes::IDLE);
       }
 
@@ -331,6 +337,7 @@ void loop()
     if (iSerial.status.mode == RadGear::Modes::IDLE || iSerial.status.mode == RadGear::Modes::SHIFTING)
     {
       gearChangeReq = processShiftReqNum(shiftTypeReq, shiftTargetGearParam);
+      sendShiftData();
 
       if (shiftTypeReq > 0 && gearChangeReq)
       {
@@ -517,14 +524,16 @@ void handleSerialCmds()
   }
 }
 
-// returns true if current gear is at target position
+// returns true if current gear is at target position, updates actualGear
 bool checkPosition()
 {
-  actualGear = round(currentPosition / 360.0) + 1;
+  motionData.actualGear = round(motionData.actualPosition / 360.0) + 1;
 
-  if (abs(targetPosition - currentPosition) < 5.0)
+  // if targetError < 5.0
+  float targetErrorTolerance = 5.0;
+  if (abs(shiftData.targetPosition - motionData.actualPosition) < targetErrorTolerance)
   {
-    actualGear = targetGear;
+    motionData.actualGear = shiftData.targetGear;
     return true;
   }
   else
@@ -567,8 +576,8 @@ void runAll()
   bool attemptedReading = encoder.run();
   if (encoder.newReadingFlag)
   {
-    currentPosition = tracker.calculatePosition(encoder.position);
-    currentVelocity = tracker.calculateFilteredVelocity();
+    motionData.actualPosition = tracker.calculatePosition(encoder.position);
+    motionData.actualVelocity = tracker.calculateFilteredVelocity();
   }
   bool temp = checkPosition();
   if (!atTarget && temp)
@@ -621,30 +630,30 @@ void updateIo()
 // returns true if the target changed from previous
 bool setTargetGear(int targetGearNum)
 {
-  int prevTargetGear = targetGear;
+  int prevTargetGear = shiftData.targetGear;
   if (targetGearNum > NUM_GEARS)
   {
-    targetGear = NUM_GEARS;
+    shiftData.targetGear = NUM_GEARS;
   }
   else if (targetGearNum < 1)
   {
-    targetGear = 1;
+    shiftData.targetGear = 1;
   }
   else
   {
-    targetGear = targetGearNum;
+    shiftData.targetGear = targetGearNum;
   }
 
-  targetPosition = 360.0 * (targetGear - 1);
+  shiftData.targetPosition = 360.0 * (shiftData.targetGear - 1);
+  shiftData.startingPosition = round(motionData.actualPosition); // store the actualPosition at the time of gear change request
+
   iSerial.debugPrint("Target Gear: ");
-  iSerial.debugPrintln(String(targetGear));
+  iSerial.debugPrintln(String(shiftData.targetGear));
   iSerial.debugPrint("Target Position: ");
-  iSerial.debugPrintln(String(targetPosition));
-  iSerial.debugPrint("Actual Gear: ");
-  iSerial.debugPrintln(String(actualGear));
-  iSerial.debugPrint("Actual Position: ");
-  iSerial.debugPrintln(String(currentPosition));
-  return (targetGear != prevTargetGear);
+  iSerial.debugPrintln(String(shiftData.targetPosition));
+  iSerial.debugPrint("Starting Position: ");
+  iSerial.debugPrintln(String(shiftData.startingPosition));
+  return (shiftData.targetGear != prevTargetGear);
 }
 
 int getRandomNumber(int min, int max) // get reandom
@@ -666,9 +675,9 @@ void initializeEncoderSystem()
     encoder.run();
     delayMicroseconds(600);
     encoder.run();
-    currentPosition = tracker.calculatePosition(encoder.position);
-    currentVelocity = tracker.calculateFilteredVelocity();
-    // iSerial.debugPrintln(currentPosition);
+    motionData.actualPosition = tracker.calculatePosition(encoder.position);
+    motionData.actualVelocity = tracker.calculateFilteredVelocity();
+    // iSerial.debugPrintln(motionData.actualPosition);
     tracker.zeroPosition(encoder.position);
     delay(200);
   }
@@ -698,7 +707,7 @@ void runController()
   static bool showedWarning = false;
   unsigned long activeTime_ms = millis() - activationStartTime_ms;
   speedRef = 0;
-  controller.calculatePDSpeedControl(currentPosition, targetPosition); // always allow this to run so that previous values stay valid
+  controller.calculatePDSpeedControl(motionData.actualPosition, shiftData.targetPosition); // always allow this to run so that previous values stay valid
   if (controllerOn && activeTime_ms < CONTROLLER_TIME_LIMIT_MS)
   {
     // Release solenoid initially with full power, than reduce to lower power as long as the absolute target error is greater than 180deg, otherwise turn it off
@@ -818,7 +827,7 @@ bool processShiftReqNum(int shiftType, int targetGearParam)
     break;
   case Shifter::ShiftTypes::UP:
     iSerial.debugPrintln("UP SHIFT");
-    targetChanged = setTargetGear(targetGear + 1);
+    targetChanged = setTargetGear(shiftData.targetGear + 1);
     break;
   case Shifter::ShiftTypes::SUPER_DOWN:
     iSerial.debugPrintln("SUPER DOWN SHIFT");
@@ -826,7 +835,7 @@ bool processShiftReqNum(int shiftType, int targetGearParam)
     break;
   case Shifter::ShiftTypes::DOWN:
     iSerial.debugPrintln("DOWN SHIFT");
-    targetChanged = setTargetGear(targetGear - 1);
+    targetChanged = setTargetGear(shiftData.targetGear - 1);
     break;
   case Shifter::ShiftTypes::ABS:
     iSerial.debugPrint("ABS SHIFT TO: ");
@@ -925,8 +934,8 @@ void printCurrentPosition()
 {
   if (true)
   {
-    iSerial.debugPrint("Current Position: ");
-    iSerial.debugPrint(String(currentPosition)); // Use 1 decimal places for floating-point numbers
+    iSerial.debugPrint("Actual Position: ");
+    iSerial.debugPrint(String(motionData.actualPosition)); // Use 1 decimal places for floating-point numbers
     iSerial.debugPrintln("deg");
 
     // iSerial.debugPrint("Encoder Raw Position: ");
@@ -957,14 +966,12 @@ void serializeShiftData(ShiftData *msgPacket, char *data)
   uint8_t *q = (uint8_t *)data;
   *q = msgPacket->targetGear;
   q++;
-  *q = msgPacket->actualGear;
-  q++;
 
   // sending int16_t vals
   int16_t *q16 = (int16_t *)q;
   *q16 = msgPacket->targetPosition;
   q16++;
-  *q16 = msgPacket->actualPosition;
+  *q16 = msgPacket->startingPosition;
   q16++;
 
   /*
@@ -972,6 +979,40 @@ void serializeShiftData(ShiftData *msgPacket, char *data)
   *f = msgPacket->actualVelocity;
   f++;
   *f = msgPacket->referenceVelocity;
+  f++;
+  */
+}
+
+void sendMotionData()
+{
+  sendInfoDataHeader(InfoTypes::MOTION_DATA); // MODIFY THIS PER INFO TYPE
+  char data[MOTIONDATAPACKETSIZE];
+  serializeMotionData(&motionData, data); // MODIFY THIS PER INFO TYPE
+  iSerial.taskPrintData(data, MOTIONDATAPACKETSIZE);
+  iSerial.writeNewline();
+}
+
+// packetSize: 5
+// note: converts the float values to int16_t to reduce packet size
+void serializeMotionData(MotionData *msgPacket, char *data)
+{
+  // sending uint8_t vals
+  uint8_t *q = (uint8_t *)data;
+  *q = msgPacket->actualGear;
+  q++;
+
+  // sending int16_t vals
+  int16_t *q16 = (int16_t *)q;
+  *q16 = round(msgPacket->actualPosition);
+  q16++;
+  *q16 = round(msgPacket->actualVelocity);
+  q16++;
+
+  /*
+  float *f = (float *)q;
+  *f = msgPacket->actualPosition;
+  f++;
+  *f = msgPacket->actualVelocity;
   f++;
   */
 }
