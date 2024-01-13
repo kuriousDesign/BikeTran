@@ -1,5 +1,7 @@
 bool FLIP_POSITIVE = false;         // This should normally be false, just used for testing directional differences in motor cmd
 bool SHIFT_BUTTONS_DISABLED = true; // if this is true, the shift buttons will be disabled (ignored)
+bool SKIP_HOMING = true;
+
 #include "ISerial.h"
 #include "Encoder.h"
 #include "PDController.h"
@@ -218,8 +220,15 @@ void loop()
     if (iSerial.status.step == 0)
     {
       turnAllOff();
-      runHomingRoutine(true);
-      iSerial.status.step = 1;
+      if (!SKIP_HOMING)
+      {
+        runHomingRoutine(true);
+        iSerial.status.step = 1;
+      }
+      else
+      {
+        iSerial.setNewMode(RadGear::Modes::IDLE);
+      }
     }
     else if (iSerial.status.step == 1)
     {
