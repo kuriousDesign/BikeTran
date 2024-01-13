@@ -211,7 +211,14 @@ void loop()
     break;
   case RadGear::Modes::INACTIVE:
     turnAllOff();
-    iSerial.setNewMode(RadGear::Modes::RESETTING);
+    if (iSerial.modeTime() > 3000)
+    {
+      sendMotionData();
+      sendShiftData();
+      iSerial.setNewMode(RadGear::Modes::KILLED); // TODO: delete this
+    }
+
+    // iSerial.setNewMode(RadGear::Modes::RESETTING);
     break;
 
   case RadGear::Modes::RESETTING:
@@ -931,9 +938,9 @@ void printCurrentPosition()
   }
 }
 
-void sendInfoDataHeader(uint8_t infoType)
+void sendInfoDataHeader(InfoTypes infoType)
 {
-  String headerString = Cmds::INFO_CMD + String(infoType);
+  String headerString = char(Cmds::INFO_CMD) + String(int(infoType));
   iSerial.writeString(headerString);
 }
 
@@ -977,6 +984,8 @@ void sendMotionData()
   serializeMotionData(&motionData, data); // MODIFY THIS PER INFO TYPE
   iSerial.taskPrintData(data, MOTIONDATAPACKETSIZE);
   iSerial.writeNewline();
+  // iSerial.debugPrint("motionData.actualGear: ");
+  // iSerial.debugPrintln(String(motionData.actualGear));
 }
 
 // packetSize: 5
