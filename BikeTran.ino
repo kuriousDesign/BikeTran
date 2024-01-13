@@ -6,6 +6,7 @@ bool SHIFT_BUTTONS_DISABLED = true; // if this is true, the shift buttons will b
 #include "EncoderTracker.h"
 #include "Shifter.h"
 #include "Solenoid.h"
+#include "CustomDataTypes.h"
 
 // PWM SIGNAL TO MOTOR DRIVER
 // 50Hz-20kHz, Amp 2.5V-5V
@@ -55,13 +56,7 @@ unsigned long lastRead_us = 0;
 unsigned long previousMillis = 0; // Initialize previousMillis to 0
 
 // MOTION PROFILE
-#define MOTIONDATAPACKETSIZE 5 // the floats are rounded to int16_t during serial transmission
-struct MotionData
-{
-  uint8_t actualGear = 1; // range is from 1 to NUM_GEARS, does not start at 0
-  float actualPosition = 0.0;
-  float actualVelocity = 0.0; // Initialize the stored position
-};
+
 MotionData motionData;
 
 bool sw = false;
@@ -79,13 +74,7 @@ int serialShiftReqType = 0;
 int serialShiftTargetGearParam = 0;
 
 // SHIFT DATA
-#define SHIFTDATAPACKETSIZE 5 // 5 bytes
-struct ShiftData
-{
-  uint8_t targetGear = 1; // range is from 1 to NUM_GEARS, does not start at 0
-  int16_t targetPosition = 0;
-  int16_t startingPosition = 0;
-};
+
 ShiftData shiftData;
 // MOTOR CONTROL LAW CONTROLLER
 bool homedStatus = false;
@@ -112,26 +101,9 @@ int16_t speedRef = 0;
 ISerial iSerial;
 long tempLong;
 float tempFloat;
-// Info Types
-enum InfoTypes : uint8_t
-{
-  SHIFT_DATA = 0,
-  MOTION_DATA = 1,
-  DIAGNOSTIC_DATA = 2,
-};
 
 // DIAGNOSTICS
-#define NUM_DIAGNOSTICS_ARRAY 800
-struct DiagnosticData
-{
-  int16_t numOfDataPoints;
-  int16_t cmd[NUM_DIAGNOSTICS_ARRAY];
-  int16_t error[NUM_DIAGNOSTICS_ARRAY];
-  uint8_t targetGear = 0;
-  uint8_t actualGear = 0;
-  int16_t targetPosition = 0;
-  int16_t actualPosition = 0;
-};
+
 unsigned long lastDisplayed_ms = 0;
 DiagnosticData diagnosticData;
 // int16_t cmdRefArray[NUM_DIAGNOSTICS_ARRAY];
