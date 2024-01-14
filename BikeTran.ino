@@ -179,13 +179,14 @@ void loop()
   if (millis() - 200 >= lastDisplayed_ms && iSerial.isConnected)
   {
     lastDisplayed_ms = millis();
-    printCurrentPosition();
+    printMotionData();
     // motionData.actualPosition = deleteMe;
     // checkPosition();
     sendMotionData();
     if (iSerial.status.mode != RadGear::Modes::SHIFTING)
     {
       iSerial.sendStatus(true);
+      sendShiftData();
     }
   }
 
@@ -328,14 +329,14 @@ void loop()
       }
       else if (atTargetAndStill || atTarget) // TODO: switch logic back to just use atTargetAndStill
       {
-        // printCurrentPosition();
+        // printMotionData();
         turnOffController();
         iSerial.setNewMode(RadGear::Modes::IDLE);
       }
 
       if (controllerErrorCode > 0)
       {
-        printCurrentPosition();
+        printMotionData();
         turnOffController();
         iSerial.setNewMode(RadGear::Modes::ERROR);
       }
@@ -949,13 +950,17 @@ void setupPWM(int pin, long frequency)
   analogWrite(pin, 0);
 }
 
-void printCurrentPosition()
+void printMotionData()
 {
   if (true)
   {
     iSerial.debugPrint("Actual Position: ");
     iSerial.debugPrint(String(motionData.actualPosition)); // Use 1 decimal places for floating-point numbers
     iSerial.debugPrintln("deg");
+
+    iSerial.debugPrint("Actual Velocity: ");
+    iSerial.debugPrint(String(motionData.actualVelocity)); // Use 1 decimal places for floating-point numbers
+    iSerial.debugPrintln("deg/sec");
 
     // iSerial.debugPrint("Encoder Raw Position: ");
     // iSerial.debugPrint(String(encoder.position)); // Use 1 decimal places for floating-point numbers
@@ -971,11 +976,14 @@ void sendInfoDataHeader(InfoTypes infoType)
 
 void sendShiftData()
 {
-  sendInfoDataHeader(InfoTypes::SHIFT_DATA); // MODIFY THIS PER INFO TYPE
-  char data[SHIFTDATAPACKETSIZE];
-  serializeShiftData(&shiftData, data); // MODIFY THIS PER INFO TYPE
-  iSerial.taskPrintData(data, SHIFTDATAPACKETSIZE);
-  iSerial.writeNewline();
+  if (iSerial.isConnected)
+  {
+    sendInfoDataHeader(InfoTypes::SHIFT_DATA); // MODIFY THIS PER INFO TYPE
+    char data[SHIFTDATAPACKETSIZE];
+    serializeShiftData(&shiftData, data); // MODIFY THIS PER INFO TYPE
+    iSerial.taskPrintData(data, SHIFTDATAPACKETSIZE);
+    iSerial.writeNewline();
+  }
 }
 
 // converts the ShiftData struct data into byte array to be used for sending over serial port
@@ -1004,13 +1012,16 @@ void serializeShiftData(ShiftData *msgPacket, char *data)
 
 void sendMotionData()
 {
-  sendInfoDataHeader(InfoTypes::MOTION_DATA); // MODIFY THIS PER INFO TYPE
-  char data[MOTIONDATAPACKETSIZE];
-  serializeMotionData(&motionData, data); // MODIFY THIS PER INFO TYPE
-  iSerial.taskPrintData(data, MOTIONDATAPACKETSIZE);
-  iSerial.writeNewline();
-  // iSerial.debugPrint("motionData.actualGear: ");
-  // iSerial.debugPrintln(String(motionData.actualGear));
+  if (iSerial.isConnected)
+  {
+    sendInfoDataHeader(InfoTypes::MOTION_DATA); // MODIFY THIS PER INFO TYPE
+    char data[MOTIONDATAPACKETSIZE];
+    serializeMotionData(&motionData, data); // MODIFY THIS PER INFO TYPE
+    iSerial.taskPrintData(data, MOTIONDATAPACKETSIZE);
+    iSerial.writeNewline();
+    // iSerial.debugPrint("motionData.actualGear: ");
+    // iSerial.debugPrintln(String(motionData.actualGear));
+  }
 }
 
 // packetSize: 5
@@ -1232,14 +1243,14 @@ int runHomingRoutine(bool resetCmd)
     }
     else if (atTargetAndStill || atTarget) // TODO: switch logic back to just use atTargetAndStill
     {
-      // printCurrentPosition();
+      // printMotionData();
       turnOffController();
       homingStep = 50;
     }
 
     if (controllerErrorCode > 0)
     {
-      printCurrentPosition();
+      printMotionData();
       turnOffController();
       homingStep = 911;
     }
