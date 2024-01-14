@@ -213,6 +213,8 @@ void loop()
     turnAllOff();
     if (iSerial.modeTime() > 3000)
     {
+      shiftData.targetGear = (shiftData.targetGear + 1) % 10;
+
       sendMotionData();
       sendShiftData();
       iSerial.setNewMode(RadGear::Modes::KILLED); // TODO: delete this
