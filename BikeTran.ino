@@ -171,13 +171,22 @@ void setup()
   // encoder.setDebug(true);
 }
 
+// int deleteMe = 0;
+// int deleteMeSign = 1;
 void loop()
 {
   // updateIo();
-  if (millis() - 250 >= lastDisplayed_ms)
+  if (millis() - 200 >= lastDisplayed_ms && iSerial.isConnected)
   {
     lastDisplayed_ms = millis();
     printCurrentPosition();
+    // motionData.actualPosition = deleteMe;
+    // checkPosition();
+    sendMotionData();
+    if (iSerial.status.mode != RadGear::Modes::SHIFTING)
+    {
+      iSerial.sendStatus(true);
+    }
   }
 
   switch (iSerial.status.mode)
@@ -188,6 +197,7 @@ void loop()
     break;
   case RadGear::Modes::KILLED:
     turnAllOff();
+    sendShiftData();
     // solenoids[Solenoids::STOPPER].changeMode(Solenoid::ON, 255);
     iSerial.setNewMode(RadGear::Modes::INACTIVE);
     break;
@@ -197,7 +207,7 @@ void loop()
     if (iSerial.status.step == 0)
     {
       turnAllOff();
-      sendMotionData();
+      sendShiftData();
       iSerial.status.step = 1;
     }
     else if (iSerial.status.step == 1)
@@ -211,16 +221,26 @@ void loop()
     break;
   case RadGear::Modes::INACTIVE:
     turnAllOff();
-    if (iSerial.modeTime() > 3000)
+    sendShiftData();
+    /*
+    int time = iSerial.modeTime();
+    if (time > 3000 && false)
     {
-      shiftData.targetGear = (shiftData.targetGear + 1) % 10;
-
-      sendMotionData();
+      setTargetGear((shiftData.targetGear + deleteMeSign) % 10);
       sendShiftData();
       iSerial.setNewMode(RadGear::Modes::KILLED); // TODO: delete this
     }
+    else if (time > 1000)
+    {
+      deleteMe = shiftData.targetPosition;
+    }
+    else
+    {
+      deleteMe = time;
+    }
+    */
 
-    // iSerial.setNewMode(RadGear::Modes::RESETTING);
+    iSerial.setNewMode(RadGear::Modes::RESETTING);
     break;
 
   case RadGear::Modes::RESETTING:
@@ -229,6 +249,7 @@ void loop()
     if (iSerial.status.step == 0)
     {
       turnAllOff();
+      sendShiftData();
       if (!SKIP_HOMING)
       {
         runHomingRoutine(true);
@@ -279,7 +300,6 @@ void loop()
     if (iSerial.status.step == 0)
     {
       turnAllOff();
-      sendMotionData();
       sendShiftData();
       iSerial.status.step = 1;
     }
@@ -292,6 +312,7 @@ void loop()
   case RadGear::Modes::SHIFTING:
     if (iSerial.status.step == 0)
     {
+      sendShiftData();
       activateController();
       i_d = 0; // this is used for diagnostics
       iSerial.status.step = 1;
@@ -300,6 +321,7 @@ void loop()
     {
       if (gearChangeReq)
       {
+        sendShiftData();
         // activateController(); // this will restart the activation time
         iSerial.debugPrintln("gearChangeReq...");
       }
