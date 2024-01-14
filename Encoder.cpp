@@ -89,6 +89,7 @@ float Encoder::parsePositionData()
     return (float(counts) / CPR) * 360.0; // output angle between 0.0 and 359.9 deg
 }
 
+// long startTime_us = micros();
 // this will read the encoder at the controlled rate, returns true if new encoder value is ready
 bool Encoder::run()
 {
@@ -96,9 +97,12 @@ bool Encoder::run()
     newReadingFlag = false;
     bool attemptedReading = false;
 
-    if (readReqFlag && timeNow - READRATE_uS >= readReqTime_us)
+    if (readReqFlag && timeNow - readReqTime_us > MIN_WAIT_TIME_uS && timeNow - READRATE_uS >= readingStartedTime_us)
     {
         readReqFlag = false;
+        // startTime_us = timeNow;
+        readingStartedTime_us = timeNow;
+
         if (Encoder::readEncoder())
         {
             newReadingFlag = true;
@@ -111,6 +115,8 @@ bool Encoder::run()
         Encoder::writeReadCmd();
         readReqTime_us = timeNow;
         readReqFlag = true;
+        // Serial.print("time us: ");
+        // Serial.println(String(micros() - startTime_us));
     }
 
     return attemptedReading;
