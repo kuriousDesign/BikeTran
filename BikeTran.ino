@@ -249,6 +249,7 @@ void loop()
     if (iSerial.status.step == 0)
     {
       turnAllOff();
+      setTargetGear(motionData.actualGear);
       sendShiftData();
       if (!SKIP_HOMING)
       {
@@ -267,7 +268,7 @@ void loop()
       if (100 == homingStatus)
       {
         iSerial.setNewMode(RadGear::Modes::IDLE);
-        shiftData.targetGear = motionData.actualGear;
+        setTargetGear(motionData.actualGear);
       }
       else if (911 == homingStatus)
       {
