@@ -74,7 +74,17 @@ enum Errors : uint8_t //
     CONTROLLER_SHIFT_TIMED_OUT = 1,
     CONTROLLER_FAULT_DURING_HOMING = 2,
     HOMING_NUDGE_RETRIES_EXCEEDED = 3,
+    ENCODER_MISREAD_COUNT_EXCEEDED = 4,
 
+};
+
+struct StopWatch
+{
+    unsigned long startTime = 0;
+    unsigned long stopTime = 0;
+    unsigned long prevScanTime = 0;
+    unsigned int maxLoopTime = 0;
+    unsigned int loopCnt = 0;
 };
 
 #endif

@@ -4,7 +4,7 @@
 #include <Arduino.h>
 
 #define MIN_WAIT_TIME_uS 650 // minimum time to wait between read request and attempted read (provided by mfg)
-#define READRATE_uS 700      // read rate in microseconds, this must be larger than MIN_WAIT_TIME_uS
+#define READRATE_uS 650      // read rate in microseconds, this must be larger than MIN_WAIT_TIME_uS
 
 // ENCODER
 /*

@@ -92,6 +92,36 @@ float Encoder::parsePositionData()
 // call this every loop, it will read the encoder at the controlled rate (700us),
 // -> returns true if a new encoder was attempted to be read (even if the read wasn't successful)
 // -> check encoder.newReadingFlag property to see if read was successful
+
+// this will read the encoder at the controlled rate, returns true if new encoder value is ready
+/*
+bool Encoder::run()
+{
+    unsigned long timeNow = micros();
+    newReadingFlag = false;
+    bool attemptedReading = false;
+
+    if (readReqFlag && timeNow - READRATE_uS >= readReqTime_us)
+    {
+        readReqFlag = false;
+        if (Encoder::readEncoder())
+        {
+            newReadingFlag = true;
+        }
+        attemptedReading = true;
+    }
+
+    if (!readReqFlag)
+    {
+        Encoder::writeReadCmd();
+        readReqTime_us = timeNow;
+        readReqFlag = true;
+    }
+
+    return attemptedReading;
+}
+*/
+
 bool Encoder::run()
 {
     unsigned long timeNow = micros();

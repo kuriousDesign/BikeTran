@@ -64,7 +64,7 @@ const float NUDGE_SOL_PWR_PERC = 100.0;
 
 // ENCODER - note that the rs485 needs to be connected to the serial1 rx and tx pins
 Encoder encoder;
-EncoderTracker tracker(READRATE_uS);
+EncoderTracker tracker(double(READRATE_uS + 50) / 1000.0);
 unsigned long lastRead_us = 0;
 
 unsigned long previousMillis = 0; // Initialize previousMillis to 0
@@ -159,13 +159,15 @@ void setup()
 
 // int deleteMe = 0;
 // int deleteMeSign = 1;
+StopWatch stopWatch;
 void loop()
 {
   // updateIo();
-  if (millis() - 20 >= lastDisplayed_ms && iSerial.isConnected && false)
+  unsigned long timeNow = millis();
+  if (timeNow - 1 >= lastDisplayed_ms && iSerial.isConnected)
   {
-    lastDisplayed_ms = millis();
-    printMotionData();
+    lastDisplayed_ms = timeNow;
+    // printMotionData();
     // checkPositionAtTarget();
     sendMotionData();
     if (iSerial.status.mode != Modes::SHIFTING)
@@ -305,6 +307,9 @@ void loop()
       activateController();
       i_d = 0; // this is used for diagnostics
       iSerial.status.step = 1;
+      stopWatch.startTime = millis();
+      stopWatch.loopCnt = 0;
+      stopWatch.maxLoopTime = 0;
     }
     else if (iSerial.status.step == 1)
     {
@@ -316,6 +321,7 @@ void loop()
       }
       else if (atTargetAndStill || atTarget) // TODO: switch logic back to just use atTargetAndStill
       {
+        iSerial.debugPrintln("at target!");
         // printMotionData();
         turnOffController();
         iSerial.setNewMode(Modes::IDLE);
@@ -323,6 +329,15 @@ void loop()
 
       if (errors.present)
       {
+        stopWatch.stopTime = millis();
+        iSerial.debugPrint("stopWatch time: ");
+        iSerial.debugPrintln(String(stopWatch.stopTime - stopWatch.startTime));
+        iSerial.debugPrint("stopWatch loopCnt: ");
+        iSerial.debugPrintln(String(stopWatch.loopCnt));
+        iSerial.debugPrint("stopWatch avgLoopTime us: ");
+        iSerial.debugPrintln(String(1000.0 * float(stopWatch.stopTime - stopWatch.startTime) / float(stopWatch.loopCnt)));
+        iSerial.debugPrint("stopWatch maxLoopTime: ");
+        iSerial.debugPrintln(String(stopWatch.maxLoopTime));
         printMotionData();
         turnOffController();
         iSerial.setNewMode(Modes::ERROR);
@@ -557,6 +572,7 @@ bool checkPositionAtTarget()
   }
   else
   {
+    atTarget = false;
     return false;
   }
 }
@@ -588,19 +604,44 @@ void activateController() // just call this once to activate
 
 void runAll()
 {
+  static uint16_t encoderMisreadCnt = 0;
   // 1. RUN THE ENCODER - THIS SETS THE FREQUENCY OF UPDATES TO FOLLOW
   bool attemptedReading = encoder.run();
 
   // 2. UPDATE THE MOTION DATA
   if (encoder.newReadingFlag)
   {
+    stopWatch.loopCnt++;
     motionData.actualPosition = tracker.calculatePosition(encoder.position);
     motionData.actualVelocity = tracker.calculateFilteredVelocity();
+    encoderMisreadCnt = 0;
+    encoder.setDebug(false);
+  }
+  else if (attemptedReading)
+  {
+    encoderMisreadCnt++;
+    if (encoderMisreadCnt > 2)
+    {
+      iSerial.debugPrintln("WARNING: encoder misread count exceeded");
+      if (iSerial.debug)
+      {
+        encoder.setDebug(true);
+      }
+      triggerError(Errors::ENCODER_MISREAD_COUNT_EXCEEDED);
+    }
   }
   checkPositionAtTarget();
   atTargetAndStill = atTarget && !tracker.isMoving;
   if (attemptedReading)
   {
+    unsigned long scanTime = micros();
+    unsigned long loopTime = scanTime - stopWatch.prevScanTime;
+    if (loopTime > stopWatch.maxLoopTime && stopWatch.prevScanTime != 0)
+    {
+      stopWatch.maxLoopTime = loopTime;
+    }
+    stopWatch.prevScanTime = scanTime;
+
     readInputs();
     runController();
     writeOutputs();

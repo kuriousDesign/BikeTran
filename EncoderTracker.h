@@ -10,8 +10,9 @@
 class EncoderTracker
 {
 public:
-    EncoderTracker(int tStep) : timeStep_ms(tStep) {}
     // takes in actual current encoder value and outputs current degrees, handles rollover
+    // tStep is in ms
+    EncoderTracker(double tStep) : timeStep_ms(tStep) {}
 
     // based on rollover
     double calculatePositionWithoutOffset(double encoderValue)
@@ -69,6 +70,7 @@ public:
         static int index = 0;
         sumFilteredVelocity -= storedPositions[index];
         sumFilteredVelocity += currentPosition;
+        storedPositions[index] = currentPosition;
         index++;
         if (index >= NUM_FILTER)
         {
@@ -99,7 +101,7 @@ public:
     bool isMoving = false;
 
 private:
-    double timeStep_ms = 0.60;
+    double timeStep_ms = 0.700;
 
     double previousEncoderValue = 0.0; // Previous encoder value
     double zeroOffsetEncoderValue = 0.0;
