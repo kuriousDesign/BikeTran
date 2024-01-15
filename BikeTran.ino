@@ -1,13 +1,13 @@
 bool FLIP_POSITIVE = false;         // This should normally be false, just used for testing directional differences in motor cmd
 bool SHIFT_BUTTONS_DISABLED = true; // if this is true, the shift buttons will be disabled (ignored)
 bool SKIP_HOMING = true;
+bool OUTPUTS_DISABLED = true; // used for testing encoder and other stuff
 
 #include "ISerial.h"
 #include "Encoder.h"
 #include "PDController.h"
 #include "EncoderTracker.h"
 #include "Shifter.h"
-#include "Solenoid.h"
 #include "CustomDataTypes.h"
 
 // PWM SIGNAL TO MOTOR DRIVER
@@ -30,25 +30,37 @@ bool SKIP_HOMING = true;
 // INPUTS
 ////////////////////////////////////////////////////
 #define PIN_HOME_SW 8
+#define PIN_SHIFT_UP 15
+#define PIN_SHIFT_DOWN 16
+
+struct Inputs
+{
+  bool ShiftUpSw = false;
+  bool ShiftDownSw = false;
+  bool HomeSw = false;
+};
+Inputs inputs;
+
 ////////////////////////////////////////////////////
 // OUTPUTS
 ////////////////////////////////////////////////////
 
-// MOTOR CONTROL BOARD
-#define PWM_PIN 11                 // Used for controlling the motor driver board
-const int PWM_FREQUENCY_HZ = 2000; // Desired PWM frequency in Hz
-#define DIR_PIN 3                  // LOW FOR POSITIVE, HIGH FOR NEGATIVE, output for an input to the motor driver board
-
-// PWM DRIVERS FOR SOLENOID STOPPER
-#define PIN_SOL_STOPPER 6
-
-// ids, used for array so start with 0!
-enum Solenoids : int
+struct Outputs
 {
-  STOPPER = 0,
+  float MotorSpeed = 0.0; // range -100.0% to 100.0%, this will control the direction pin as well
+  float SolPwr = 0.0;     // range 0.0 % to 100 %
 };
-#define NUM_SOLENOIDS 1
-Solenoid solenoids[NUM_SOLENOIDS];
+Outputs outputs;
+
+// MOTOR CONTROL BOARD
+#define PIN_MOTOR_PWM 11           // Used for controlling the motor driver board
+const int PWM_FREQUENCY_HZ = 2000; // Desired PWM frequency in Hz
+#define PIN_MOTOR_DIR 3            // LOW FOR POSITIVE, HIGH FOR NEGATIVE, output for an input to the motor driver board
+
+// SOLENOID STOPPER
+#define PIN_SOL 6 // must be a pwm pin
+const float NOMINAL_SOL_PWR_PERC = 100.0;
+const float NUDGE_SOL_PWR_PERC = 100.0;
 
 // ENCODER - note that the rs485 needs to be connected to the serial1 rx and tx pins
 Encoder encoder;
@@ -58,7 +70,6 @@ unsigned long lastRead_us = 0;
 unsigned long previousMillis = 0; // Initialize previousMillis to 0
 
 // MOTION PROFILE
-
 MotionData motionData;
 
 bool sw = false;
@@ -66,11 +77,11 @@ int time_now;
 long last_time = millis();
 
 // SHIFTER
-#define PIN_SHIFT_UP 15
-#define PIN_SHIFT_DOWN 16
+
 Shifter shifter(PIN_SHIFT_UP, PIN_SHIFT_DOWN);
 bool gearChangeReq = false;
 int shiftTargetGearParam = 0;
+
 // SERIAL SHIFTER DATA
 int serialShiftReqType = 0;
 int serialShiftTargetGearParam = 0;
@@ -80,10 +91,10 @@ int serialShiftTargetGearParam = 0;
 ShiftData shiftData;
 // MOTOR CONTROL LAW CONTROLLER
 bool homedStatus = false;
-const double MAX_SPEEDREF_PD = 70.0;   // max speedRef during PD control mode
-const double NUDGE_POWER_PERC = 255.0; // speedRef during nudging
+const double MAX_SPEEDREF_PD_PERC = 30.0; // max speedRef during PD control mode (perc)
+const double NUDGE_POWER_PERC = 100.0;    // speedRef during nudging
 const int NUDGE_TIME_MS = 70;
-const double NOMINAL_SPEEDREF = 75;                   // nominal speedRef when not near the target
+const double NOMINAL_SPEEDREF = 75.0 / 255.0 * 100.0; // nominal speedRef when not near the target
 const double NEAR_TARGET_DIST = 65.0;                 // distance to be considered near the target, where mode switches to PD control
 PDController controller = PDController(1.25, 0.2500); // NOTE: modify these parameters to improve the control, start with pd set to zero
 #define NUM_GEARS 12
@@ -94,15 +105,17 @@ PDController controller = PDController(1.25, 0.2500); // NOTE: modify these para
 bool controllerOn = false;                // set this true to activate outputs related to the controller, set to false to kill those outputs
 unsigned long activationStartTime_ms = 0; // the time the controller first became activated
 const int SOLENOID_RETRACT_TIME_MS = 100;
-const int CONTROLLER_TIME_LIMIT_MS = 5000; // max time the controller is allowed to be active
-int controllerErrorCode = 0;               // 1: timed out
+const int CONTROLLER_TIME_LIMIT_MS = 2000; // max time the controller is allowed to be active
+
 bool atTarget = false;
 bool atTargetAndStill = false;
-int16_t speedRef = 0;
+// int16_t speedRef = 0;
 
 ISerial iSerial;
 long tempLong;
 float tempFloat;
+
+FaultData errors;
 
 // DIAGNOSTICS
 
@@ -113,33 +126,6 @@ DiagnosticData diagnosticData;
 int i_d = 0;
 String jsonString = "";
 
-class RadGear
-{
-public:
-  enum Modes : int32_t //
-  {
-    ABORTING = -3,
-    KILLED = -2,
-    ERROR = -1,
-    INACTIVE = 0,
-    RESETTING = 50,
-    IDLE = 100,
-    SHIFTING = 200, // while shifting, the controller is active
-    // SUPER_SHIFT_UP = 300,
-    // SHIFT_DOWN = 400,
-    // SUPER_SHIFT_DOWN = 500,
-  };
-
-  enum Events : int
-  {
-    NONE = 0,
-    UP_SHIFT_REQ = 1,
-    SUPER_UP_SHIFT_REQ = 2,
-    DOWN_SHIFT_REQ = 3,
-    SUPER_DOWN_SHIFT_REQ = 4,
-  };
-};
-
 void setup()
 {
   iSerial.init();
@@ -147,8 +133,8 @@ void setup()
   iSerial.setAutoSendStatus(true); // status updates sent when mode changes
 
   // initialize solenoid stopper
-  pinMode(PIN_SOL_STOPPER, OUTPUT);
-  // solenoids[Solenoids::STOPPER].init(PIN_SOL_STOPPER, SolenoidTypes::PWM, SolenoidSafety::CONTINUOUS_OK);
+  pinMode(PIN_SOL, OUTPUT);
+  // solenoids[Solenoids::STOPPER].init(PIN_SOL, SolenoidTypes::PWM, SolenoidSafety::CONTINUOUS_OK);
 
   // initialize encoder
   encoder.init();
@@ -157,13 +143,13 @@ void setup()
   pinMode(PIN_HOME_SW, INPUT);
 
   // initialize motor controller outputs
-  pinMode(DIR_PIN, OUTPUT);
+  pinMode(PIN_MOTOR_DIR, OUTPUT);
   setDirPinPositive();
-  setupPWM(PWM_PIN, PWM_FREQUENCY_HZ); // initialize motor control pin
+  setupPWM(PIN_MOTOR_PWM, PWM_FREQUENCY_HZ); // initialize motor control pin
 
   initializeEncoderSystem();
   // iSerial.debug = true;
-  iSerial.setNewMode(RadGear::Modes::ABORTING);
+  iSerial.setNewMode(Modes::ABORTING);
 
   // Serial.print("This Device ID:");
   // Serial.println(iSerial.THIS_DEVICE_ID);
@@ -176,14 +162,13 @@ void setup()
 void loop()
 {
   // updateIo();
-  if (millis() - 200 >= lastDisplayed_ms && iSerial.isConnected)
+  if (millis() - 20 >= lastDisplayed_ms && iSerial.isConnected && false)
   {
     lastDisplayed_ms = millis();
     printMotionData();
-    // motionData.actualPosition = deleteMe;
-    // checkPosition();
+    // checkPositionAtTarget();
     sendMotionData();
-    if (iSerial.status.mode != RadGear::Modes::SHIFTING)
+    if (iSerial.status.mode != Modes::SHIFTING)
     {
       iSerial.sendStatus(true);
       sendShiftData();
@@ -192,35 +177,41 @@ void loop()
 
   switch (iSerial.status.mode)
   {
-  case RadGear::Modes::ABORTING:
+  case Modes::ABORTING:
     turnAllOff();
-    iSerial.setNewMode(RadGear::Modes::KILLED); // TODO: this may break the raspi code, may want raspi to initiate the mode change
+    iSerial.setNewMode(Modes::KILLED); // TODO: this may break the raspi code, may want raspi to initiate the mode change
     break;
-  case RadGear::Modes::KILLED:
+  case Modes::KILLED:
     turnAllOff();
     sendShiftData();
     // solenoids[Solenoids::STOPPER].changeMode(Solenoid::ON, 255);
-    iSerial.setNewMode(RadGear::Modes::INACTIVE);
+    iSerial.setNewMode(Modes::INACTIVE);
     break;
-  case RadGear::Modes::ERROR:
+  case Modes::ERROR:
     turnAllOff();
 
     if (iSerial.status.step == 0)
     {
       turnAllOff();
+      sendErrorData();
       sendShiftData();
       iSerial.status.step = 1;
     }
     else if (iSerial.status.step == 1)
     {
-      if (iSerial.modeTime() > 10000)
+      // auto clear the errors after 5 seconds
+      if (iSerial.modeTime() > 5000)
       {
-        iSerial.setNewMode(RadGear::Modes::INACTIVE);
+        clearErrors();
+      }
+      if (!errors.present)
+      {
+        iSerial.setNewMode(Modes::INACTIVE);
       }
     }
 
     break;
-  case RadGear::Modes::INACTIVE:
+  case Modes::INACTIVE:
     turnAllOff();
     sendShiftData();
     /*
@@ -229,7 +220,7 @@ void loop()
     {
       setTargetGear((shiftData.targetGear + deleteMeSign) % 10);
       sendShiftData();
-      iSerial.setNewMode(RadGear::Modes::KILLED); // TODO: delete this
+      iSerial.setNewMode(Modes::KILLED); // TODO: delete this
     }
     else if (time > 1000)
     {
@@ -241,10 +232,10 @@ void loop()
     }
     */
 
-    iSerial.setNewMode(RadGear::Modes::RESETTING);
+    iSerial.setNewMode(Modes::RESETTING);
     break;
 
-  case RadGear::Modes::RESETTING:
+  case Modes::RESETTING:
     // TODO: insert homing logic here, home switch should be wired n.c.
 
     if (iSerial.status.step == 0)
@@ -259,7 +250,7 @@ void loop()
       }
       else
       {
-        iSerial.setNewMode(RadGear::Modes::IDLE);
+        iSerial.setNewMode(Modes::IDLE);
       }
     }
     else if (iSerial.status.step == 1)
@@ -268,37 +259,33 @@ void loop()
 
       if (100 == homingStatus)
       {
-        iSerial.setNewMode(RadGear::Modes::IDLE);
+        iSerial.setNewMode(Modes::IDLE);
         setTargetGear(motionData.actualGear);
       }
       else if (911 == homingStatus)
       {
-        iSerial.setNewMode(RadGear::Modes::ERROR);
+        iSerial.setNewMode(Modes::ERROR);
       }
     }
 
     /*
-    digitalWrite(PWM_PIN, LOW);
-    digitalWrite(DIR_PIN, LOW);
-    delay(200);
-
-    analogWrite(PIN_SOL_STOPPER, 254);
-
-    delay(100);
-    analogWrite(PIN_SOL_STOPPER, 229);
-    analogWrite(PWM_PIN, 255);
-    delay(70);
-    digitalWrite(PIN_SOL_STOPPER, LOW);
-    analogWrite(PWM_PIN, 75);
-    delay(600);
-    digitalWrite(PWM_PIN, LOW);
-    // delay(1000);
-    digitalWrite(PIN_SOL_STOPPER, LOW);
-    */
+        digitalWrite(PIN_MOTOR_PWM, LOW);
+        digitalWrite(PIN_MOTOR_DIR, LOW);
+        analogWrite(PIN_SOL, 255);
+        delay(SOLENOID_RETRACT_TIME_MS);
+        analogWrite(PIN_MOTOR_PWM, 100);
+        delay(NUDGE_TIME_MS);
+        digitalWrite(PIN_SOL, LOW);
+        analogWrite(PIN_MOTOR_PWM, 75);
+        delay(300);
+        digitalWrite(PIN_MOTOR_PWM, LOW);
+        // delay(1000);
+    digitalWrite(PIN_SOL, LOW);
+        */
 
     break;
 
-  case RadGear::Modes::IDLE:
+  case Modes::IDLE:
     if (iSerial.status.step == 0)
     {
       turnAllOff();
@@ -307,11 +294,11 @@ void loop()
     }
     if (gearChangeReq)
     {
-      iSerial.setNewMode(RadGear::Modes::SHIFTING);
+      iSerial.setNewMode(Modes::SHIFTING);
     }
 
     break;
-  case RadGear::Modes::SHIFTING:
+  case Modes::SHIFTING:
     if (iSerial.status.step == 0)
     {
       sendShiftData();
@@ -331,14 +318,14 @@ void loop()
       {
         // printMotionData();
         turnOffController();
-        iSerial.setNewMode(RadGear::Modes::IDLE);
+        iSerial.setNewMode(Modes::IDLE);
       }
 
-      if (controllerErrorCode > 0)
+      if (errors.present)
       {
         printMotionData();
         turnOffController();
-        iSerial.setNewMode(RadGear::Modes::ERROR);
+        iSerial.setNewMode(Modes::ERROR);
       }
     }
 
@@ -357,7 +344,7 @@ void loop()
   gearChangeReq = false;
   if (shiftTypeReq > 0)
   {
-    if (iSerial.status.mode == RadGear::Modes::IDLE || iSerial.status.mode == RadGear::Modes::SHIFTING)
+    if (iSerial.status.mode == Modes::IDLE || iSerial.status.mode == Modes::SHIFTING)
     {
       gearChangeReq = processShiftReqNum(shiftTypeReq, shiftTargetGearParam);
       sendShiftData();
@@ -516,6 +503,9 @@ void handleSerialCmds()
 
   switch (iSerial.cmdChr)
   {
+  case Cmds::CLEAR_CMD:
+    clearErrors();
+    break;
   case Cmds::ABSPOS_CMD:
     processAbsPosCmd();
     break;
@@ -547,9 +537,10 @@ void handleSerialCmds()
   }
 }
 
-// returns true if current gear is at target position, updates actualGear
-bool checkPosition()
+// returns true if current gear is at target position, updates actualGear and atTarget
+bool checkPositionAtTarget()
 {
+
   motionData.actualGear = round(motionData.actualPosition / 360.0) + 1;
 
   // if targetError < 5.0
@@ -557,6 +548,11 @@ bool checkPosition()
   if (abs(shiftData.targetPosition - motionData.actualPosition) < targetErrorTolerance)
   {
     motionData.actualGear = shiftData.targetGear;
+    if (!atTarget)
+    {
+      iSerial.debugPrintln("atTarget!");
+    }
+    atTarget = true;
     return true;
   }
   else
@@ -574,18 +570,14 @@ void processUnrecognizedCmd()
 
 void turnAllOff() // turn off all outputs
 {
-  turnAllSolenoidsOff();
   turnOffController();
+  outputs.MotorSpeed = 0.0;
+  outputs.SolPwr = 0.0;
 }
 
 void turnOffController()
 {
   controllerOn = false;
-  controllerErrorCode = 0;
-  speedRef = 0;
-  digitalWrite(PWM_PIN, LOW);
-  digitalWrite(PIN_SOL_STOPPER, LOW);
-  digitalWrite(DIR_PIN, LOW);
 }
 
 void activateController() // just call this once to activate
@@ -596,24 +588,73 @@ void activateController() // just call this once to activate
 
 void runAll()
 {
+  // 1. RUN THE ENCODER - THIS SETS THE FREQUENCY OF UPDATES TO FOLLOW
   bool attemptedReading = encoder.run();
+
+  // 2. UPDATE THE MOTION DATA
   if (encoder.newReadingFlag)
   {
     motionData.actualPosition = tracker.calculatePosition(encoder.position);
     motionData.actualVelocity = tracker.calculateFilteredVelocity();
   }
-  bool temp = checkPosition();
-  if (!atTarget && temp)
-  {
-    iSerial.debugPrintln("atTarget!");
-  }
-  atTarget = temp;
+  checkPositionAtTarget();
   atTargetAndStill = atTarget && !tracker.isMoving;
   if (attemptedReading)
   {
+    readInputs();
     runController();
+    writeOutputs();
   }
   // runAllSolenoids();
+}
+
+void readInputs()
+{
+  inputs.ShiftUpSw = digitalRead(PIN_SHIFT_UP);
+  inputs.ShiftDownSw = digitalRead(PIN_SHIFT_DOWN);
+  inputs.HomeSw = digitalRead(PIN_HOME_SW);
+}
+
+// responsible for setting the outputs, each time this function is called it will automatically reset all the control values for safety
+void writeOutputs()
+{
+
+  if (OUTPUTS_DISABLED)
+  {
+    outputs.MotorSpeed = 0.0;
+    outputs.SolPwr = 0.0;
+  }
+
+  // MOTOR SPEED - Controls direction pin and pwm pin for motor control board
+  if (outputs.MotorSpeed >= 0.0)
+  {
+    setDirPinPositive();
+  }
+  else
+  {
+    setDirPinNegative();
+  }
+
+  // BOUND THE OUTPUT TO +/- 100.0%
+  if (abs(outputs.MotorSpeed) > 100.0)
+  {
+    outputs.MotorSpeed = outputs.MotorSpeed / abs(outputs.MotorSpeed) * 100.0;
+  }
+  analogWrite(PIN_MOTOR_PWM, round(outputs.MotorSpeed * 255.0));
+  outputs.MotorSpeed = 0.0; // ALWAYS RESET TO 0.0
+
+  // SOLENOID STOPPERS POWER - controls both solenoids responsible for stopping the motor
+  // BOUND THE OUTPUT TO 0.0 to 100.0%
+  if (outputs.SolPwr > 100.0)
+  {
+    outputs.SolPwr = 100.0;
+  }
+  else if (outputs.SolPwr < 0.0)
+  {
+    outputs.SolPwr = 0.0;
+  }
+  analogWrite(PIN_SOL, round(outputs.SolPwr * 255.0));
+  outputs.SolPwr = 0.0; // ALWAYS RESET TO 0.0
 }
 
 // JSON HELPERS
@@ -635,19 +676,14 @@ String subJsonString(String &dataStr, bool &success, String name)
 
 void updateIo()
 {
-  /*
   int sensorNum = 0;
-  iSerial.setIo(sensorNum, readPiInput(PIN_PI_TELEPORTER_INPUT));
+  iSerial.setIo(sensorNum, inputs.ShiftDownSw);
 
   sensorNum++;
-  iSerial.setIo(sensorNum, readPiInput(PIN_PI_LOOP_INPUT));
+  iSerial.setIo(sensorNum, inputs.ShiftUpSw);
 
   sensorNum++;
-  iSerial.setIo(sensorNum, readPiInput(PIN_PI_SPACE_INV_INPUT));
-
-  sensorNum++;
-  iSerial.setIo(sensorNum, readPiInput(PIN_PI_FLIPPER_INPUT));
-  */
+  iSerial.setIo(sensorNum, inputs.HomeSw);
 }
 
 // returns true if the target changed from previous
@@ -708,80 +744,57 @@ void initializeEncoderSystem()
   setTargetGear(1);
 }
 
-void turnAllSolenoidsOff()
-{
-  for (int i = 0; i < NUM_SOLENOIDS; i++)
-  {
-    solenoids[i].changeMode(Solenoid::Modes::OFF);
-    solenoids[i].run();
-  }
-}
-
-void runAllSolenoids()
-{
-  for (int i = 0; i < NUM_SOLENOIDS; i++)
-  {
-    solenoids[i].run();
-  }
-}
-
 void runController()
 {
   static bool showedWarning = false;
   unsigned long activeTime_ms = millis() - activationStartTime_ms;
-  speedRef = 0;
+  float speedRef = 0.0;
+  float solPwr = 0.0;
   controller.calculatePDSpeedControl(motionData.actualPosition, shiftData.targetPosition); // always allow this to run so that previous values stay valid
   if (controllerOn && activeTime_ms < CONTROLLER_TIME_LIMIT_MS)
   {
+    double sign = controller.error / abs(controller.error);
     // Release solenoid initially with full power, than reduce to lower power as long as the absolute target error is greater than 180deg, otherwise turn it off
     if (activeTime_ms < SOLENOID_RETRACT_TIME_MS)
     {
       showedWarning = false;
-      // solenoids[Solenoids::STOPPER].changeMode(Solenoid::ON, 255);
-      analogWrite(PIN_SOL_STOPPER, 255);
+      speedRef = 0.0;
+      solPwr = NUDGE_SOL_PWR_PERC;
     }
     else if (activeTime_ms < SOLENOID_RETRACT_TIME_MS + NUDGE_TIME_MS && !tracker.isMoving)
     {
-      double nudgeDirection = controller.error / abs(controller.error);
-      speedRef = 255 * NUDGE_POWER_PERC * nudgeDirection;
-      analogWrite(PIN_SOL_STOPPER, 255);
+
+      speedRef = NUDGE_POWER_PERC * sign;
+      solPwr = NOMINAL_SOL_PWR_PERC;
     }
     else if (abs(controller.error) > NEAR_TARGET_DIST)
     {
-      // solenoids[Solenoids::STOPPER].changeMode(Solenoid::ON, 75);
-      analogWrite(PIN_SOL_STOPPER, 255);
-      speedRef = NOMINAL_SPEEDREF * controller.error / abs(controller.error);
+      solPwr = NOMINAL_SOL_PWR_PERC;
+      speedRef = NOMINAL_SPEEDREF * sign;
     }
     else if (abs(controller.error) <= NEAR_TARGET_DIST) // if error is within 180.0, switch to pd control and release solenoid
     {
-      speedRef = MAX_SPEEDREF_PD * controller.speedControl / 100.0;
-      // solenoids[Solenoids::STOPPER].changeMode(Solenoid::OFF);
-      digitalWrite(PIN_SOL_STOPPER, LOW);
-    }
-
-    // SET THE DIRECTION PIN
-    if (speedRef >= 0.0)
-    {
-      setDirPinPositive();
-    }
-    else
-    {
-      setDirPinNegative();
+      speedRef = MAX_SPEEDREF_PD_PERC * controller.speedControl / 100.0;
+      solPwr = 0.0; // off
     }
 
     // SET THE PWM OUTPUT TO THE MOTOR BOARD IF ENOUGH TIME HAS BEEN ALLOTTED TO ALLOW SOLENOID TO RETRACT
     if (activeTime_ms >= SOLENOID_RETRACT_TIME_MS)
     {
-      analogWrite(PWM_PIN, speedRef);
+      outputs.MotorSpeed = speedRef;
     }
     else
     {
-      digitalWrite(PWM_PIN, LOW);
+      speedRef = 0.0;
+      outputs.MotorSpeed = 0.0;
     }
+
+    // SET THE SOLENOID PWR OUTPUT
+    outputs.SolPwr = solPwr;
     // printing the diagnostic data as csv stream
     if (false)
     {
-      iSerial.debugPrint(String(round(controller.error)));
+      // iSerial.debugPrint(String(round(controller.error)));
       iSerial.debugPrint(", ");
       iSerial.debugPrintln(String(speedRef));
     }
@@ -790,7 +803,7 @@ void runController()
     {
       // storing diagnostic data into arrays
       diagnosticData.error[i_d] = round(controller.error);
-      diagnosticData.cmd[i_d] = speedRef;
+      diagnosticData.cmd[i_d] = round(outputs.MotorSpeed);
       i_d++;
     }
     else if (i_d == NUM_DIAGNOSTICS_ARRAY)
@@ -798,19 +811,19 @@ void runController()
       // do something here
     }
   }
-  else
+  else // motor is not active
   {
-    digitalWrite(PWM_PIN, LOW);
-    digitalWrite(DIR_PIN, LOW);
-    digitalWrite(PIN_SOL_STOPPER, LOW);
+    speedRef = 0.0;
+    solPwr = 0.0;
     // solenoids[Solenoids::STOPPER].changeMode(Solenoid::OFF);
     if (controllerOn && activeTime_ms >= CONTROLLER_TIME_LIMIT_MS && !showedWarning)
     {
-      controllerErrorCode = 1;
+      triggerError(Errors::CONTROLLER_SHIFT_TIMED_OUT);
       showedWarning = true;
       iSerial.debugPrint("ERROR: Controller timed out after ");
       iSerial.debugPrint(String(CONTROLLER_TIME_LIMIT_MS));
       iSerial.debugPrintln(" ms");
+      controllerOn = false;
     }
   }
 }
@@ -864,32 +877,6 @@ bool processShiftReqNum(int shiftType, int targetGearParam)
     break;
   }
   return targetChanged;
-}
-
-// OUTDATED - consider deprecating
-int checkForGearShiftSerial(String receivedString)
-{
-
-  if (receivedString.equals("SUPERUP"))
-  {
-    return Shifter::SUPER_UP;
-  }
-  else if (receivedString.equals("UP"))
-  {
-    return Shifter::UP;
-  }
-  else if (receivedString.equals('SUPERDOWN'))
-  {
-    return Shifter::DOWN;
-  }
-  else if (receivedString.equals('DOWN'))
-  {
-    return Shifter::DOWN;
-  }
-  else
-  {
-    return Shifter::NONE;
-  }
 }
 
 // SETUP
@@ -1053,11 +1040,11 @@ void setDirPinPositive()
 {
   if (!FLIP_POSITIVE)
   {
-    digitalWrite(DIR_PIN, LOW);
+    digitalWrite(PIN_MOTOR_DIR, LOW);
   }
   else
   {
-    digitalWrite(DIR_PIN, HIGH);
+    digitalWrite(PIN_MOTOR_DIR, HIGH);
   }
 }
 
@@ -1065,11 +1052,11 @@ void setDirPinNegative()
 {
   if (!FLIP_POSITIVE)
   {
-    digitalWrite(DIR_PIN, HIGH);
+    digitalWrite(PIN_MOTOR_DIR, HIGH);
   }
   else
   {
-    digitalWrite(DIR_PIN, LOW);
+    digitalWrite(PIN_MOTOR_DIR, LOW);
   }
 }
 
@@ -1087,7 +1074,9 @@ int runHomingRoutine(bool resetCmd)
   static int initialPositionReading = 0;
   static int nudgeRetryCnt = 0;
   const int NUDGE_MAX_RETRIES = 5;
-  bool homeSw = digitalRead(PIN_HOME_SW);
+
+  float speedRefPerc = 0.0;
+  float solPwr = 0.0;
 
   if (homingStep != prevStep)
   {
@@ -1117,7 +1106,7 @@ int runHomingRoutine(bool resetCmd)
     homingStep = 10;
     break;
   case 10: // determine the nudge direction based on homeSw
-    if (homeSw)
+    if (inputs.HomeSw)
     {
       homingStep = 20;
     }
@@ -1129,7 +1118,6 @@ int runHomingRoutine(bool resetCmd)
   case 20: // NUDGE POSITIVE
     // Record initial encoder position.
     // Then nudge motor in pos dir
-    setDirPinPositive();
 
     if (homingFirstScan)
     {
@@ -1138,24 +1126,24 @@ int runHomingRoutine(bool resetCmd)
     }
     else if (stepTime > NUDGE_TIME_MS)
     {
-      digitalWrite(PWM_PIN, LOW);
+      speedRefPerc = 0.0;
       homingStep = 21;
     }
     else
     {
-      analogWrite(PWM_PIN, 255 * NUDGE_POWER_PERC);
+      speedRefPerc = NUDGE_POWER_PERC;
     }
     break;
-  case 21: // Check if nudge moved
+  case 21: // Check if nudge moved less than 5 degrees
     if (abs(initialPositionReading - motionData.actualPosition) < 5.0)
     {
       // jump to final steps
-      digitalWrite(PWM_PIN, LOW);
+      speedRefPerc = 0.0;
       homingStep = 50;
     }
     else
     {
-      if (homeSw)
+      if (inputs.HomeSw)
       {
         nudgeRetryCnt = 0;
         homingStep = 30;
@@ -1174,7 +1162,7 @@ int runHomingRoutine(bool resetCmd)
   case 30: // NUDGE NEGATIVE
     // Record initial encoder position.
     // Then nudge motor in pos dir
-    setDirPinNegative();
+    // setDirPinNegative();
 
     if (homingFirstScan)
     {
@@ -1183,12 +1171,12 @@ int runHomingRoutine(bool resetCmd)
     }
     else if (stepTime > NUDGE_TIME_MS)
     {
-      digitalWrite(PWM_PIN, LOW);
+      speedRefPerc = 0.0;
       homingStep = 31;
     }
     else
     {
-      analogWrite(PWM_PIN, 255 * NUDGE_POWER_PERC);
+      speedRefPerc = -NUDGE_POWER_PERC;
     }
     break;
 
@@ -1196,7 +1184,7 @@ int runHomingRoutine(bool resetCmd)
     if (abs(initialPositionReading - motionData.actualPosition) < 5.0)
     {
       // jump to final steps
-      digitalWrite(PWM_PIN, LOW);
+      speedRefPerc = 0.0;
       homingStep = 50;
     }
     else
@@ -1207,6 +1195,7 @@ int runHomingRoutine(bool resetCmd)
       }
       else
       {
+        triggerError(Errors::HOMING_NUDGE_RETRIES_EXCEEDED);
         homingStep = 911;
       }
     }
@@ -1225,7 +1214,7 @@ int runHomingRoutine(bool resetCmd)
     break;
 
   case 50: // Check homeSw Status
-    if (homeSw)
+    if (inputs.HomeSw)
     {
       homingStep = 80;
     }
@@ -1248,8 +1237,9 @@ int runHomingRoutine(bool resetCmd)
       homingStep = 50;
     }
 
-    if (controllerErrorCode > 0)
+    if (errors.present)
     {
+      triggerError(Errors::CONTROLLER_FAULT_DURING_HOMING);
       printMotionData();
       turnOffController();
       homingStep = 911;
@@ -1272,11 +1262,68 @@ int runHomingRoutine(bool resetCmd)
   case 911: // ERROR
     if (homingFirstScan)
     {
+      speedRefPerc = 0.0;
+      solPwr = 0.0;
       turnAllOff();
       // DO NOTHING
     }
     break;
+  }
+  if (!controllerOn)
+  {
+    outputs.MotorSpeed = speedRefPerc;
+    outputs.SolPwr = solPwr;
+    speedRefPerc = 0.0;
+    solPwr = 0.0;
+  }
+  return homingStep;
+}
+void clearErrors()
+{
+  errors.present = false;
+  for (int i = 0; i < FAULT_DATA_LIST_LENGTH; i++)
+  {
+    errors.list[i] = Errors::NONE_ERROR;
+  }
+}
+void triggerError(uint8_t code)
+{
+  bool isNewCode = true;
+  errors.present = true;
+  for (int i = 0; i < FAULT_DATA_LIST_LENGTH; i++)
+  {
+    if (errors.list[i] == code)
+    {
+      isNewCode = false;
+    }
+    if (errors.list[i] == Errors::NONE_ERROR && isNewCode)
+    {
+      errors.list[i] = code;
+    }
+  }
+}
 
-    return homingStep;
+void sendErrorData()
+{
+  if (iSerial.isConnected)
+  {
+    sendInfoDataHeader(InfoTypes::ERROR_DATA); // MODIFY THIS PER INFO TYPE
+    char data[FAULTDATAPACKETSIZE];
+    serializeFaultData(&errors, data); // MODIFY THIS PER INFO TYPE
+    iSerial.taskPrintData(data, FAULTDATAPACKETSIZE);
+    iSerial.writeNewline();
+  }
+}
+
+void serializeFaultData(FaultData *msgPacket, char *data)
+{
+  // sending uint8_t vals
+  uint8_t *q = (uint8_t *)data;
+  *q = static_cast<uint8_t>(msgPacket->present);
+  q++;
+  for (int i = 0; i < FAULT_DATA_LIST_LENGTH; i++)
+  {
+    *q = msgPacket->list[i];
+    q++;
   }
 }

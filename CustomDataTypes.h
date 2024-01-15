@@ -3,12 +3,33 @@
 
 #include <Arduino.h>
 
+enum Modes : int32_t //
+{
+    ABORTING = -3,
+    KILLED = -2,
+    ERROR = -1,
+    INACTIVE = 0,
+    RESETTING = 50,
+    IDLE = 100,
+    SHIFTING = 200, // while shifting, the controller is active
+};
+
+enum Events : int
+{
+    NONE_EVENT = 0,
+    UP_SHIFT_REQ = 1,
+    SUPER_UP_SHIFT_REQ = 2,
+    DOWN_SHIFT_REQ = 3,
+    SUPER_DOWN_SHIFT_REQ = 4,
+};
+
 // Info Types
 enum InfoTypes : uint8_t
 {
     SHIFT_DATA = 0,
     MOTION_DATA = 1,
     DIAGNOSTIC_DATA = 2,
+    ERROR_DATA = 3,
 };
 
 #define MOTIONDATAPACKETSIZE 5 // the floats are rounded to int16_t during serial transmission
@@ -37,6 +58,23 @@ struct DiagnosticData
     int8_t actualGear = 0;
     int16_t targetPosition = 0;
     int16_t actualPosition = 0;
+};
+
+#define FAULT_DATA_LIST_LENGTH 4
+#define FAULTDATAPACKETSIZE (1 + FAULT_DATA_LIST_LENGTH)
+struct FaultData
+{
+    bool present = false;
+    uint8_t list[FAULT_DATA_LIST_LENGTH];
+};
+
+enum Errors : uint8_t //
+{
+    NONE_ERROR = 0,
+    CONTROLLER_SHIFT_TIMED_OUT = 1,
+    CONTROLLER_FAULT_DURING_HOMING = 2,
+    HOMING_NUDGE_RETRIES_EXCEEDED = 3,
+
 };
 
 #endif

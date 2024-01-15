@@ -89,8 +89,9 @@ float Encoder::parsePositionData()
     return (float(counts) / CPR) * 360.0; // output angle between 0.0 and 359.9 deg
 }
 
-// long startTime_us = micros();
-// this will read the encoder at the controlled rate, returns true if new encoder value is ready
+// call this every loop, it will read the encoder at the controlled rate (700us),
+// -> returns true if a new encoder was attempted to be read (even if the read wasn't successful)
+// -> check encoder.newReadingFlag property to see if read was successful
 bool Encoder::run()
 {
     unsigned long timeNow = micros();

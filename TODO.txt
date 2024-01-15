@@ -1,5 +1,9 @@
 STATUS      DESCRIPTION
+            handle errorData in serial driver and UI
+            show clearBtn in UI when serial driver mode is ERROR
 
+            Create passable settings from UI to mega: nudge_time, nudge amplitude, etc. 
+            Manual Modes: jog forward and jog negative with percent power.
             study dead time between encoder readings to know if i can afford to send info updates and diagnostic data
             phase out serial_output cmd for diagnostic data and use info_cmd with InfoTypes::DIAGNOSTIC_DATA instead
 DONE        Verify from older code that the pd control law error uses degrees and not revs
