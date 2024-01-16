@@ -48,7 +48,7 @@ struct ShiftData
     int16_t startingPosition = 0;
 };
 
-#define NUM_DIAGNOSTICS_ARRAY 800
+#define NUM_DIAGNOSTICS_ARRAY 1000
 struct DiagnosticData
 {
     int16_t numOfDataPoints;

@@ -1,4 +1,5 @@
 STATUS      DESCRIPTION
+            Send i/o status to UI (should already be sent with status)
 Testing     Debug: velocity is off, might want to base it off of true scan times instead of avg
             handle errorData in serial driver and UI
             show clearBtn in UI when serial driver mode is ERROR

@@ -35,8 +35,8 @@ bool OUTPUTS_DISABLED = true; // used for testing encoder and other stuff
 
 struct Inputs
 {
-  bool ShiftUpSw = false;
   bool ShiftDownSw = false;
+  bool ShiftUpSw = false;
   bool HomeSw = false;
 };
 Inputs inputs;
@@ -105,7 +105,7 @@ PDController controller = PDController(1.25, 0.2500); // NOTE: modify these para
 bool controllerOn = false;                // set this true to activate outputs related to the controller, set to false to kill those outputs
 unsigned long activationStartTime_ms = 0; // the time the controller first became activated
 const int SOLENOID_RETRACT_TIME_MS = 100;
-const int CONTROLLER_TIME_LIMIT_MS = 2000; // max time the controller is allowed to be active
+const int CONTROLLER_TIME_LIMIT_MS = 600; // max time the controller is allowed to be active
 
 bool atTarget = false;
 bool atTargetAndStill = false;
