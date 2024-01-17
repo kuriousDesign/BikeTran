@@ -30,6 +30,7 @@ enum InfoTypes : uint8_t
     MOTION_DATA = 1,
     DIAGNOSTIC_DATA = 2,
     ERROR_DATA = 3,
+    WARNING_DATA = 4,
 };
 
 #define MOTIONDATAPACKETSIZE 5 // the floats are rounded to int16_t during serial transmission
@@ -48,7 +49,7 @@ struct ShiftData
     int16_t startingPosition = 0;
 };
 
-#define NUM_DIAGNOSTICS_ARRAY 1000
+#define NUM_DIAGNOSTICS_ARRAY 900
 struct DiagnosticData
 {
     int16_t numOfDataPoints;
@@ -76,6 +77,11 @@ enum Errors : uint8_t //
     HOMING_NUDGE_RETRIES_EXCEEDED = 3,
     ENCODER_MISREAD_COUNT_EXCEEDED = 4,
 
+};
+
+enum Warnings : uint8_t //
+{
+    NONE_WARNING = 0,
 };
 
 struct StopWatch

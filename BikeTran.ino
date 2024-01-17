@@ -1,7 +1,7 @@
-bool FLIP_POSITIVE = false;         // This should normally be false, just used for testing directional differences in motor cmd
-bool SHIFT_BUTTONS_DISABLED = true; // if this is true, the shift buttons will be disabled (ignored)
+bool FLIP_POSITIVE = false;          // This should normally be false, just used for testing directional differences in motor cmd
+bool SHIFT_BUTTONS_DISABLED = false; // if this is true, the shift buttons will be disabled (ignored)
 bool SKIP_HOMING = true;
-bool OUTPUTS_DISABLED = true; // used for testing encoder and other stuff
+bool OUTPUTS_DISABLED = false; // used for testing encoder and other stuff
 
 #include "ISerial.h"
 #include "Encoder.h"
@@ -91,12 +91,13 @@ int serialShiftTargetGearParam = 0;
 ShiftData shiftData;
 // MOTOR CONTROL LAW CONTROLLER
 bool homedStatus = false;
+const double MIN_SPEED_REF_PERC = 22.0;
 const double MAX_SPEEDREF_PD_PERC = 30.0; // max speedRef during PD control mode (perc)
 const double NUDGE_POWER_PERC = 100.0;    // speedRef during nudging
 const int NUDGE_TIME_MS = 70;
-const double NOMINAL_SPEEDREF = 75.0 / 255.0 * 100.0; // nominal speedRef when not near the target
-const double NEAR_TARGET_DIST = 65.0;                 // distance to be considered near the target, where mode switches to PD control
-PDController controller = PDController(1.25, 0.2500); // NOTE: modify these parameters to improve the control, start with pd set to zero
+const double NOMINAL_SPEEDREF = 120.0 / 255.0 * 100.0; // nominal speedRef when not near the target
+const double NEAR_TARGET_DIST = 100.0;                 // distance to be considered near the target, where mode switches to PD control
+PDController controller = PDController(1.25, 0.300);   // NOTE: modify these parameters to improve the control, start with pd set to zero
 #define NUM_GEARS 12
 #define MIN_POSITION 0.0
 #define MAX_POSITION (MIN_POSITION + float(NUM_GEARS - 1) * 360.0)
@@ -105,7 +106,7 @@ PDController controller = PDController(1.25, 0.2500); // NOTE: modify these para
 bool controllerOn = false;                // set this true to activate outputs related to the controller, set to false to kill those outputs
 unsigned long activationStartTime_ms = 0; // the time the controller first became activated
 const int SOLENOID_RETRACT_TIME_MS = 100;
-const int CONTROLLER_TIME_LIMIT_MS = 600; // max time the controller is allowed to be active
+const int CONTROLLER_TIME_LIMIT_MS = 800; // max time the controller is allowed to be active
 
 bool atTarget = false;
 bool atTargetAndStill = false;
@@ -151,9 +152,6 @@ void setup()
   // iSerial.debug = true;
   iSerial.setNewMode(Modes::ABORTING);
 
-  // Serial.print("This Device ID:");
-  // Serial.println(iSerial.THIS_DEVICE_ID);
-
   // encoder.setDebug(true);
 }
 
@@ -164,16 +162,18 @@ void loop()
 {
   // updateIo();
   unsigned long timeNow = millis();
-  if (timeNow - 1 >= lastDisplayed_ms && iSerial.isConnected)
+  if (timeNow - 100 >= lastDisplayed_ms && iSerial.isConnected && true)
   {
     lastDisplayed_ms = timeNow;
-    // printMotionData();
-    // checkPositionAtTarget();
     sendMotionData();
     if (iSerial.status.mode != Modes::SHIFTING)
     {
       iSerial.sendStatus(true);
       sendShiftData();
+    }
+    if (errors.present)
+    {
+      sendErrorData();
     }
   }
 
@@ -187,11 +187,17 @@ void loop()
     turnAllOff();
     sendShiftData();
     // solenoids[Solenoids::STOPPER].changeMode(Solenoid::ON, 255);
-    iSerial.setNewMode(Modes::INACTIVE);
+    if (errors.present)
+    {
+      iSerial.setNewMode(Modes::ERROR);
+    }
+    else
+    {
+      iSerial.setNewMode(Modes::INACTIVE);
+    }
+
     break;
   case Modes::ERROR:
-    turnAllOff();
-
     if (iSerial.status.step == 0)
     {
       turnAllOff();
@@ -201,8 +207,8 @@ void loop()
     }
     else if (iSerial.status.step == 1)
     {
-      // auto clear the errors after 5 seconds
-      if (iSerial.modeTime() > 5000)
+      // auto clear the errors after 10 seconds
+      if (iSerial.modeTime() > 10000)
       {
         clearErrors();
       }
@@ -216,6 +222,8 @@ void loop()
   case Modes::INACTIVE:
     turnAllOff();
     sendShiftData();
+    sendErrorData();
+
     /*
     int time = iSerial.modeTime();
     if (time > 3000 && false)
@@ -266,7 +274,7 @@ void loop()
       }
       else if (911 == homingStatus)
       {
-        iSerial.setNewMode(Modes::ERROR);
+        iSerial.setNewMode(Modes::ABORTING);
       }
     }
 
@@ -294,7 +302,12 @@ void loop()
       sendShiftData();
       iSerial.status.step = 1;
     }
-    if (gearChangeReq)
+
+    if (errors.present)
+    {
+      iSerial.setNewMode(Modes::ABORTING);
+    }
+    else if (gearChangeReq)
     {
       iSerial.setNewMode(Modes::SHIFTING);
     }
@@ -319,7 +332,7 @@ void loop()
         // activateController(); // this will restart the activation time
         iSerial.debugPrintln("gearChangeReq...");
       }
-      else if (atTargetAndStill || atTarget) // TODO: switch logic back to just use atTargetAndStill
+      else if (atTargetAndStill && atTarget) // TODO: switch logic back to just use atTargetAndStill
       {
         iSerial.debugPrintln("at target!");
         // printMotionData();
@@ -465,6 +478,7 @@ void printDiagnosticDataToJsonString(int lenArray)
   // Serial.println(outerJson);
 
   // return outerJson;
+  delayMicroseconds(7000); // allow buffer to build up
 }
 
 void processRelPosCmd()
@@ -605,6 +619,7 @@ void activateController() // just call this once to activate
 void runAll()
 {
   static uint16_t encoderMisreadCnt = 0;
+  static bool errorTriggered = false;
   // 1. RUN THE ENCODER - THIS SETS THE FREQUENCY OF UPDATES TO FOLLOW
   bool attemptedReading = encoder.run();
 
@@ -614,13 +629,18 @@ void runAll()
     stopWatch.loopCnt++;
     motionData.actualPosition = tracker.calculatePosition(encoder.position);
     motionData.actualVelocity = tracker.calculateFilteredVelocity();
+
+    if (encoderMisreadCnt > 0)
+    {
+      iSerial.debugPrintln("encoder misread count reset to zero");
+      encoder.setDebug(false);
+    }
     encoderMisreadCnt = 0;
-    encoder.setDebug(false);
   }
   else if (attemptedReading)
   {
     encoderMisreadCnt++;
-    if (encoderMisreadCnt > 2)
+    if (encoderMisreadCnt % 10000 == 3)
     {
       iSerial.debugPrintln("WARNING: encoder misread count exceeded");
       if (iSerial.debug)
@@ -628,6 +648,10 @@ void runAll()
         encoder.setDebug(true);
       }
       triggerError(Errors::ENCODER_MISREAD_COUNT_EXCEEDED);
+    }
+    else
+    {
+      encoder.setDebug(false);
     }
   }
   checkPositionAtTarget();
@@ -645,6 +669,7 @@ void runAll()
     readInputs();
     runController();
     writeOutputs();
+    updateIo();
   }
   // runAllSolenoids();
 }
@@ -815,7 +840,14 @@ void runController()
     }
     else if (abs(controller.error) <= NEAR_TARGET_DIST) // if error is within 180.0, switch to pd control and release solenoid
     {
-      speedRef = MAX_SPEEDREF_PD_PERC * controller.speedControl / 100.0;
+      if (controller.speedControl == 0)
+      {
+        speedRef = 0.0;
+      }
+      else
+      {
+        speedRef = (MAX_SPEEDREF_PD_PERC - MIN_SPEED_REF_PERC) * controller.speedControl / 100.0 + MIN_SPEED_REF_PERC * controller.speedControl / abs(controller.speedControl);
+      }
       solPwr = 0.0; // off
     }
 
@@ -1327,7 +1359,7 @@ void clearErrors()
     errors.list[i] = Errors::NONE_ERROR;
   }
 }
-void triggerError(uint8_t code)
+void triggerError(Errors code)
 {
   bool isNewCode = true;
   errors.present = true;
@@ -1340,6 +1372,7 @@ void triggerError(uint8_t code)
     if (errors.list[i] == Errors::NONE_ERROR && isNewCode)
     {
       errors.list[i] = code;
+      break;
     }
   }
 }
