@@ -10,14 +10,41 @@
 class EncoderTracker
 {
 public:
-    EncoderTracker(int tStep) : timeStep_ms(tStep) {}
     // takes in actual current encoder value and outputs current degrees, handles rollover
+    // tStep is in ms
+    EncoderTracker(double tStep) : timeStep_ms(tStep) {}
+
+    // based on rollover
+    double calculatePositionWithoutOffset(double encoderValue)
+    {
+        // Calculate the change in encoder value since the previous reading
+        double encoderChange = encoderValue - previousEncoderValue;
+
+        // Handle rollover when the encoder value goes from 359 to 0 or vice versa
+        if (encoderChange > 180)
+        {
+            encoderChange -= 360;
+        }
+        else if (encoderChange < -180)
+        {
+            encoderChange += 360;
+        }
+
+        // Update the previous encoder value for the next calculation
+        previousEncoderValue = encoderValue;
+
+        // Update the current degrees traveled without bounding
+        currentPosition += encoderChange;
+
+        return currentPosition;
+    }
+
     double calculatePosition(double rawEncoderValue)
     {
-        encoderValue = rawEncoderValue - zeroOffsetEncoderValue;
+        double correctedEncoderValue = rawEncoderValue - zeroOffsetEncoderValue;
 
         // Calculate the change in encoder value since the previous reading
-        int encoderChange = encoderValue - previousEncoderValue;
+        double encoderChange = correctedEncoderValue - previousEncoderValue;
 
         // Handle rollover when the encoder value goes from 359 to 0 or vice versa
         if (encoderChange > 180.0)
@@ -30,7 +57,7 @@ public:
         }
 
         // Update the previous encoder value for the next calculation
-        previousEncoderValue = encoderValue;
+        previousEncoderValue = correctedEncoderValue;
 
         // Update the current degrees traveled without bounding
         currentPosition += encoderChange;
@@ -43,6 +70,7 @@ public:
         static int index = 0;
         sumFilteredVelocity -= storedPositions[index];
         sumFilteredVelocity += currentPosition;
+        storedPositions[index] = currentPosition;
         index++;
         if (index >= NUM_FILTER)
         {
@@ -61,9 +89,9 @@ public:
 
         return currentVelocity;
     }
-    void zeroPosition()
+    void zeroPosition(double rawEncoderValue)
     {
-        zeroOffsetEncoderValue = encoderValue + zeroOffsetEncoderValue;
+        zeroOffsetEncoderValue = rawEncoderValue;
         previousEncoderValue = 0;
         currentPosition = 0.0;
     }
@@ -73,11 +101,11 @@ public:
     bool isMoving = false;
 
 private:
-    double timeStep_ms = 0.60;
+    double timeStep_ms = 0.700;
 
     double previousEncoderValue = 0.0; // Previous encoder value
     double zeroOffsetEncoderValue = 0.0;
-    double encoderValue = 0.0; // offset is applied
+    // double encoderValue = 0.0; // offset is applied
 
     double storedPositions[NUM_FILTER];
     double sumFilteredVelocity = 0.0;

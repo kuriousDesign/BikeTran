@@ -57,6 +57,8 @@ bool Encoder::readEncoder()
                 sign = -1.0;
             }
             Encoder::position = sign * parsePositionData();
+            // debugPrint("encoder raw position: ");
+            // debugPrintln(String(Encoder::position));
         }
         if (result != dataArray[4])
         {
@@ -80,14 +82,19 @@ float Encoder::parsePositionData()
 {
     if (dataArray[0] != READ_ABS_POS)
     {
-        // Serial.print("Control Field Byte did not match 0x02, it was : ");
-        // Serial.println(dataArray[0]);
+        // debugPrint("Control Field Byte did not match 0x02, it was : ");
+        // debugPrintln(String(dataArray[0]));
     }
     uint16_t counts = dataArray[2] + (dataArray[3] << 8);
     return (float(counts) / CPR) * 360.0; // output angle between 0.0 and 359.9 deg
 }
 
+// call this every loop, it will read the encoder at the controlled rate (700us),
+// -> returns true if a new encoder was attempted to be read (even if the read wasn't successful)
+// -> check encoder.newReadingFlag property to see if read was successful
+
 // this will read the encoder at the controlled rate, returns true if new encoder value is ready
+/*
 bool Encoder::run()
 {
     unsigned long timeNow = micros();
@@ -113,6 +120,38 @@ bool Encoder::run()
 
     return attemptedReading;
 }
+*/
+
+bool Encoder::run()
+{
+    unsigned long timeNow = micros();
+    newReadingFlag = false;
+    bool attemptedReading = false;
+
+    if (readReqFlag && timeNow - readReqTime_us > MIN_WAIT_TIME_uS && timeNow - READRATE_uS >= readingStartedTime_us)
+    {
+        readReqFlag = false;
+        // startTime_us = timeNow;
+        readingStartedTime_us = timeNow;
+
+        if (Encoder::readEncoder())
+        {
+            newReadingFlag = true;
+        }
+        attemptedReading = true;
+    }
+
+    if (!readReqFlag)
+    {
+        Encoder::writeReadCmd();
+        readReqTime_us = timeNow;
+        readReqFlag = true;
+        // Serial.print("time us: ");
+        // Serial.println(String(micros() - startTime_us));
+    }
+
+    return attemptedReading;
+}
 
 void Encoder::debugPrint(String msg)
 {
@@ -132,4 +171,5 @@ void Encoder::debugPrintln(String msg)
 void Encoder::setDebug(bool setOn)
 {
     debug = setOn;
+    debugPrintln("encoder debug now available");
 }

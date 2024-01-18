@@ -3,7 +3,8 @@
 
 #include <Arduino.h>
 
-#define READRATE_uS 700 // read rate in microseconds
+#define MIN_WAIT_TIME_uS 650 // minimum time to wait between read request and attempted read (provided by mfg)
+#define READRATE_uS 650      // read rate in microseconds, this must be larger than MIN_WAIT_TIME_uS
 
 // ENCODER
 /*
@@ -36,9 +37,9 @@ private:
     byte dataArray[maxDataSize]; // Byte array to store received data
     int dataSize = 0;            // Current size of the byte array
 
-    bool readReqFlag = false;         // when true, means a read request has been sent to encoder
-    unsigned long readReqTime_us = 0; // time that the read request was sent, need to wait about 600us beforing reading
-
+    bool readReqFlag = false;                // when true, means a read request has been sent to encoder
+    unsigned long readReqTime_us = 0;        // time that the read request was sent, need to wait about 600us beforing reading
+    unsigned long readingStartedTime_us = 0; // time when encoder is starting to be read;
     bool readEncoder();
     void writeEncoderCmd(byte cmd);
     void writeReadCmd();
