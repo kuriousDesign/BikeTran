@@ -2,5 +2,5 @@
     "port": "/dev/ttyACM0",
     "configuration": "cpu=atmega2560",
     "board": "arduino:avr:mega",
-    "sketch": "BikeTran.ino"
+    "sketch": "epd1in54_V2/epd1in54_V2.ino"
 }
