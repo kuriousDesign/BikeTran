@@ -3,6 +3,7 @@ bool SHIFT_BUTTONS_DISABLED = false; // if this is true, the shift buttons will 
 bool SKIP_HOMING = true;
 bool OUTPUTS_DISABLED = false; // used for testing encoder and other stuff
 
+#include "Arduino.h"
 #include "ISerial.h"
 #include "Encoder.h"
 #include "PDController.h"
@@ -91,13 +92,13 @@ const float TARGET_TOLERANCE = 5.0;
 ShiftData shiftData;
 // MOTOR CONTROL LAW CONTROLLER
 bool homedStatus = false;
-const double MIN_SPEED_REF_PERC = 25.0;   // formerly 22.0
-const double MAX_SPEEDREF_PD_PERC = 30.0; // max speedRef during PD control mode (perc)
-const double NUDGE_POWER_PERC = 100.0;    // speedRef during nudging
-const int NUDGE_TIME_MS = 70;
-const double NOMINAL_SPEEDREF = 120.0 / 255.0 * 100.0; // nominal speedRef when not near the target
-const double NEAR_TARGET_DIST = 60.0;                  // distance to be considered near the target, where mode switches to PD control
-PDController controller = PDController(1.20, 0.000);   // NOTE: modify these parameters to improve the control, start with pd set to zero
+const double MIN_SPEED_REF_PERC = 25.0;              // formerly 22.0
+const double MAX_SPEEDREF_PD_PERC = 30.0;            // max speedRef during PD control mode (perc)
+const double NUDGE_POWER_PERC = 100.0;               // speedRef used during intial impulse (nudge) to get the motor to move (perc)
+const int NUDGE_TIME_MS = 70;                        // duration of intial impulse cmd to get the motor to move (ms)
+const double NOMINAL_SPEEDREF_PERC = 30.0;           // nominal speedRef for runControler() when far from target (perc)
+const double NEAR_TARGET_DIST = 60.0;                // distance to be considered near the target, where mode switches to PD control
+PDController controller = PDController(1.20, 0.000); // NOTE: modify these parameters to improve the control, start with pd set to zero
 #define NUM_GEARS 12
 #define MIN_POSITION 0.0
 #define MAX_POSITION (MIN_POSITION + float(NUM_GEARS - 1) * 360.0)
@@ -110,7 +111,6 @@ const int CONTROLLER_TIME_LIMIT_MS = 800; // max time the controller is allowed 
 
 bool atTarget = false;
 bool atTargetAndStill = false;
-// int16_t speedRef = 0;
 
 ISerial iSerial;
 long tempLong;
@@ -124,7 +124,7 @@ unsigned long lastDisplayed_ms = 0;
 DiagnosticData diagnosticData;
 // int16_t cmdRefArray[NUM_DIAGNOSTICS_ARRAY];
 
-int i_d = 0;
+// int i_d = 0;
 String jsonString = "";
 
 void setup()
@@ -162,10 +162,11 @@ void loop()
 {
   // updateIo();
   unsigned long timeNow = millis();
-  if (timeNow - 100 >= lastDisplayed_ms && iSerial.isConnected && true)
+  if (timeNow - 20 >= lastDisplayed_ms && iSerial.isConnected && true)
   {
     lastDisplayed_ms = timeNow;
     sendMotionData();
+
     if (iSerial.status.mode != Modes::SHIFTING)
     {
       iSerial.sendStatus(true);
@@ -284,6 +285,7 @@ void loop()
     {
       turnAllOff();
       sendShiftData();
+      printMotionData();
       iSerial.status.step = 1;
     }
 
@@ -294,6 +296,7 @@ void loop()
     else if (gearChangeReq)
     {
       iSerial.setNewMode(Modes::SHIFTING);
+      // printMotionData();
     }
 
     break;
@@ -301,9 +304,8 @@ void loop()
 
     if (iSerial.status.step == 0)
     {
-      sendShiftData();
       activateController();
-      i_d = 0; // this is used for diagnostics
+
       iSerial.status.step = 1;
       stopWatch.startTime = millis();
       stopWatch.loopCnt = 0;
@@ -320,9 +322,12 @@ void loop()
         iSerial.debugPrintln("gearChangeReq...");
         atTargetCnt = 0;
       }
-      else if (atTarget && (atTargetAndStill || atTargetCnt > 7)) // TODO: switch logic back to just use atTargetAndStill
+      else if (atTarget && (atTargetAndStill || atTargetCnt > 7) && !tracker.isMoving) // TODO: switch logic back to just use atTargetAndStill
       {
         iSerial.debugPrintln("at target!");
+        iSerial.debugPrint("shiftTime(ms): ");
+        iSerial.debugPrintln(String(iSerial.modeTime()));
+
         // printMotionData();
         turnOffController();
         iSerial.setNewMode(Modes::IDLE);
@@ -363,14 +368,16 @@ void loop()
     if (iSerial.status.mode == Modes::IDLE || iSerial.status.mode == Modes::SHIFTING)
     {
       gearChangeReq = processShiftReqNum(shiftTypeReq, shiftTargetGearParam);
-      sendShiftData();
-      atTarget = false;
-      atTargetAndStill = false;
 
       if (shiftTypeReq > 0 && gearChangeReq)
       {
+
         iSerial.debugPrint("shiftType: ");
         iSerial.debugPrintln(String(shiftTypeReq));
+        sendShiftData();
+        atTarget = false;
+        atTargetAndStill = false;
+        initializeDiagnosticData();
       }
     }
     else
@@ -388,9 +395,8 @@ void loop()
   // solenoids[0].setDebug(iSerial.debug);
 }
 
-void printDiagnosticDataToJsonString(int lenArray)
+void printDiagnosticDataToJsonString()
 {
-  diagnosticData.numOfDataPoints = lenArray;
 
   iSerial.writeString("{\"diagnostic\": ");
 
@@ -399,9 +405,9 @@ void printDiagnosticDataToJsonString(int lenArray)
 
   iSerial.writeString("[");
   int16_t DELAY_TIME_US = 200;
-  if (lenArray > 0)
+  if (diagnosticData.numOfDataPoints > 0)
   {
-    for (int i = 0; i < lenArray; i++)
+    for (int i = 0; i < diagnosticData.numOfDataPoints; i++)
     {
       while (Serial.availableForWrite() <= 8)
       {
@@ -410,7 +416,7 @@ void printDiagnosticDataToJsonString(int lenArray)
 
       iSerial.writeString(String(diagnosticData.error[i]));
 
-      if (i < lenArray - 1)
+      if (i < diagnosticData.numOfDataPoints - 1)
       {
         iSerial.writeString(", ");
       }
@@ -422,16 +428,16 @@ void printDiagnosticDataToJsonString(int lenArray)
   iSerial.writeString(", \"cmd\": ");
   iSerial.writeString("[");
 
-  if (lenArray > 0)
+  if (diagnosticData.numOfDataPoints > 0)
   {
-    for (int i = 0; i < lenArray; i++)
+    for (int i = 0; i < diagnosticData.numOfDataPoints; i++)
     {
       while (Serial.availableForWrite() <= 8)
       {
         delayMicroseconds(DELAY_TIME_US);
       }
       iSerial.writeString(String(diagnosticData.cmd[i]));
-      if (i < lenArray - 1)
+      if (i < diagnosticData.numOfDataPoints - 1)
       {
         iSerial.writeString(", ");
       }
@@ -539,7 +545,7 @@ void handleSerialCmds()
 
   case Cmds::SERIAL_OUTPUT: // prints serial information for use with a serial monitor, not to be used with high frequency (use INFO_CMD for that)
     iSerial.writeCmdChrIdChr();
-    printDiagnosticDataToJsonString(i_d);
+    printDiagnosticDataToJsonString();
     // iSerial.writeString(jsonString);
     iSerial.writeNewline();
     // iSerial.debugPrint("iSerial.status.mode: ");
@@ -579,7 +585,10 @@ bool checkPositionAtTarget()
     {
       if (!atTargetAndStill)
       {
-        iSerial.debugPrintln("atTargetAndStill!");
+        iSerial.debugPrint("atTargetAndStill! - ");
+        iSerial.debugPrint(String(shiftData.targetPosition));
+        iSerial.debugPrint(",");
+        iSerial.debugPrintln(String(motionData.actualPosition));
       }
       atTargetAndStill = true;
     }
@@ -699,28 +708,43 @@ void writeOutputs()
   }
 
   // MOTOR SPEED - Controls direction pin and pwm pin for motor control board
-  if (outputs.MotorSpeed >= 0.0)
+  double sign = 0.0;
+  if (outputs.MotorSpeed > 0.0)
   {
     setDirPinPositive();
+    sign = 1.0;
+  }
+  else if (outputs.MotorSpeed < 0.0)
+  {
+    setDirPinNegative();
+    sign = -1.0;
   }
   else
   {
-    setDirPinNegative();
+    setDirPinPositive();
+    sign = 0.0;
   }
 
+  int outputValPwm = 0;
   // BOUND THE OUTPUT TO +/- 100.0%
   if (abs(outputs.MotorSpeed) > 100.0)
   {
-    outputs.MotorSpeed = outputs.MotorSpeed / abs(outputs.MotorSpeed) * 100.0;
+    outputs.MotorSpeed = sign * 100.0;
+    outputValPwm = 255;
   }
-  if (recording)
+  else
+  {
+    outputValPwm = abs(round(outputs.MotorSpeed * 255.0 / 100.0));
+  }
+
+  analogWrite(PIN_MOTOR_PWM, outputValPwm);
+  if (recording && diagnosticData.numOfDataPoints < NUM_DIAGNOSTICS_ARRAY)
   {
     // storing diagnostic data into arrays
-    // diagnosticData.error[i_d] = round(controller.error);
-    diagnosticData.cmd[i_d] = round(outputs.MotorSpeed);
-    // i_d++;
+    diagnosticData.error[diagnosticData.numOfDataPoints] = round(controller.error);
+    diagnosticData.cmd[diagnosticData.numOfDataPoints] = round(outputs.MotorSpeed);
+    diagnosticData.numOfDataPoints++;
   }
-  analogWrite(PIN_MOTOR_PWM, round(outputs.MotorSpeed * 255.0));
   outputs.MotorSpeed = 0.0; // ALWAYS RESET TO 0.0
 
   // SOLENOID STOPPERS POWER - controls both solenoids responsible for stopping the motor
@@ -769,6 +793,7 @@ void updateIo()
 // returns true if the target changed from previous
 bool setTargetGear(int targetGearNum)
 {
+  iSerial.debugPrintln("setTargetGear()");
   int prevTargetGear = shiftData.targetGear;
   if (targetGearNum > NUM_GEARS)
   {
@@ -783,18 +808,34 @@ bool setTargetGear(int targetGearNum)
     shiftData.targetGear = targetGearNum;
   }
 
-  shiftData.targetPosition = 360.0 * (shiftData.targetGear - 1);
-  shiftData.startingPosition = round(motionData.actualPosition); // store the actualPosition at the time of gear change request
-  atTarget = false;
-  atTargetAndStill = false;
+  // INITIALIZING SHIFT DATA - if targetChanged
+  bool targetChanged = shiftData.targetGear != prevTargetGear;
+  if (targetChanged)
+  {
+    shiftData.targetPosition = 360.0 * (shiftData.targetGear - 1);
+    shiftData.startingPosition = round(motionData.actualPosition); // store the actualPosition at the time of gear change request
+    // printMotionData();
+    checkPositionAtTarget();
+    // atTarget = false;
+    // atTargetAndStill = false;
+    iSerial.debugPrintln("STORING NEW SHIFT DATA");
+    iSerial.debugPrint("Target Gear: ");
+    iSerial.debugPrintln(String(shiftData.targetGear));
+    iSerial.debugPrint("Target Position: ");
+    iSerial.debugPrintln(String(shiftData.targetPosition));
+    iSerial.debugPrint("Starting Position: ");
+    iSerial.debugPrintln(String(shiftData.startingPosition));
+  }
+  return targetChanged;
+}
 
-  iSerial.debugPrint("Target Gear: ");
-  iSerial.debugPrintln(String(shiftData.targetGear));
-  iSerial.debugPrint("Target Position: ");
-  iSerial.debugPrintln(String(shiftData.targetPosition));
-  iSerial.debugPrint("Starting Position: ");
-  iSerial.debugPrintln(String(shiftData.startingPosition));
-  return (shiftData.targetGear != prevTargetGear);
+void initializeDiagnosticData()
+{
+  diagnosticData.numOfDataPoints = 0;
+  diagnosticData.targetGear = shiftData.targetGear;
+  diagnosticData.targetPosition = shiftData.targetPosition;
+  diagnosticData.actualGear = motionData.actualGear;
+  diagnosticData.actualPosition = motionData.actualPosition;
 }
 
 int getRandomNumber(int min, int max) // get reandom
@@ -830,12 +871,21 @@ void runController()
 {
   static bool showedWarning = false;
   unsigned long activeTime_ms = millis() - activationStartTime_ms;
-  float speedRef = 0.0;
+  double speedRef = 0.0;
   float solPwr = 0.0;
   controller.calculatePDSpeedControl(motionData.actualPosition, shiftData.targetPosition); // always allow this to run so that previous values stay valid
   if (controllerOn && activeTime_ms < CONTROLLER_TIME_LIMIT_MS)
   {
-    double sign = controller.error / abs(controller.error);
+    double sign = 0.0;
+    if (controller.error < 0.0)
+    {
+      sign = -1.0;
+    }
+    else if (controller.error > 0.0)
+    {
+      sign = 1.0;
+    }
+    // SOLENOID RETRACTING PHASE
     // Release solenoid initially with full power, than reduce to lower power as long as the absolute target error is greater than 180deg, otherwise turn it off
     if (activeTime_ms < SOLENOID_RETRACT_TIME_MS)
     {
@@ -843,17 +893,19 @@ void runController()
       speedRef = 0.0;
       solPwr = NUDGE_SOL_PWR_PERC;
     }
+    // NUDGE PHASE
     else if (activeTime_ms < SOLENOID_RETRACT_TIME_MS + NUDGE_TIME_MS)
     {
-
       speedRef = NUDGE_POWER_PERC * sign;
       solPwr = NOMINAL_SOL_PWR_PERC;
     }
+    // FAR FROM TARGET PHASE - cruise at nominal power
     else if (abs(controller.error) > NEAR_TARGET_DIST)
     {
+      speedRef = NOMINAL_SPEEDREF_PERC * sign;
       solPwr = NOMINAL_SOL_PWR_PERC;
-      speedRef = NOMINAL_SPEEDREF * sign;
     }
+    // NEAR TO TARGET PHASE - pd control
     else if (abs(controller.error) <= NEAR_TARGET_DIST) // if error is within 180.0, switch to pd control and release solenoid
     {
       if (controller.speedControl == 0 || abs(controller.error) <= TARGET_TOLERANCE)
@@ -888,17 +940,13 @@ void runController()
       iSerial.debugPrintln(String(speedRef));
     }
 
-    if (i_d < NUM_DIAGNOSTICS_ARRAY)
+    if (diagnosticData.numOfDataPoints < NUM_DIAGNOSTICS_ARRAY)
     {
       recording = true;
       // storing diagnostic data into arrays
-      diagnosticData.error[i_d] = round(controller.error);
-      // diagnosticData.cmd[i_d] = round(outputs.MotorSpeed);
-      i_d++;
-    }
-    else if (i_d == NUM_DIAGNOSTICS_ARRAY)
-    {
-      // do something here
+      // diagnosticData.error[diagnosticData.numOfDataPoints] = round(controller.error);
+      // diagnosticData.cmd[diagnosticData.numOfDataPoints] = round(outputs.MotorSpeed);
+      // diagnosticData.numOfDataPoints++;
     }
   }
   else // motor is not active
@@ -1029,20 +1077,31 @@ void setupPWM(int pin, long frequency)
 
 void printMotionData()
 {
-  if (true)
-  {
-    iSerial.debugPrint("Actual Position: ");
-    iSerial.debugPrint(String(motionData.actualPosition)); // Use 1 decimal places for floating-point numbers
-    iSerial.debugPrintln("deg");
+  iSerial.debugPrint("Target Gear: ");
+  iSerial.debugPrint(String(shiftData.targetGear)); // Use 1 decimal places for floating-point numbers
+  iSerial.debugPrintln("");
 
-    iSerial.debugPrint("Actual Velocity: ");
-    iSerial.debugPrint(String(motionData.actualVelocity)); // Use 1 decimal places for floating-point numbers
-    iSerial.debugPrintln("deg/sec");
+  iSerial.debugPrint("Actual Gear: ");
+  iSerial.debugPrint(String(motionData.actualGear)); // Use 1 decimal places for floating-point numbers
+  iSerial.debugPrintln("");
 
-    // iSerial.debugPrint("Encoder Raw Position: ");
-    // iSerial.debugPrint(String(encoder.position)); // Use 1 decimal places for floating-point numbers
-    // iSerial.debugPrintln("deg");
-  }
+  iSerial.debugPrint("Target Position: ");
+  iSerial.debugPrint(String(shiftData.targetPosition)); // Use 1 decimal places for floating-point numbers
+  iSerial.debugPrintln("deg");
+
+  iSerial.debugPrint("Actual Position: ");
+  iSerial.debugPrint(String(motionData.actualPosition)); // Use 1 decimal places for floating-point numbers
+  iSerial.debugPrintln("deg");
+
+  iSerial.debugPrint("Actual Velocity: ");
+  iSerial.debugPrint(String(motionData.actualVelocity)); // Use 1 decimal places for floating-point numbers
+  iSerial.debugPrintln("deg/sec");
+
+  // iSerial.debugPrintln(String(motionData.actualPosition));
+
+  // iSerial.debugPrint("Encoder Raw Position: ");
+  // iSerial.debugPrint(String(encoder.position)); // Use 1 decimal places for floating-point numbers
+  // iSerial.debugPrintln("deg");
 }
 
 void sendInfoDataHeader(InfoTypes infoType)

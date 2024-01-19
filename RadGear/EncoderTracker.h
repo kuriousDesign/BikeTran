@@ -68,15 +68,18 @@ public:
     double calculateFilteredVelocity()
     {
         static int index = 0;
-        sumFilteredVelocity -= storedPositions[index];
-        sumFilteredVelocity += currentPosition;
-        storedPositions[index] = currentPosition;
+        static double prevPosition = 0.0;
+        sumFilteredVelocity -= storedDiffs[index];
+        double thisDiff = currentPosition - prevPosition;
+        sumFilteredVelocity += thisDiff;
+        storedDiffs[index] = thisDiff;
+        prevPosition = currentPosition;
         index++;
         if (index >= NUM_FILTER)
         {
             index = 0;
         }
-        currentVelocity = 1000.0 * sumFilteredVelocity / (NUM_FILTER - 1) * timeStep_ms;
+        currentVelocity = 1000.0 * sumFilteredVelocity / double(NUM_FILTER - 1) * timeStep_ms;
 
         if (abs(currentVelocity) >= IS_MOVING_SPEED_THRESHOLD)
         {
@@ -107,7 +110,7 @@ private:
     double zeroOffsetEncoderValue = 0.0;
     // double encoderValue = 0.0; // offset is applied
 
-    double storedPositions[NUM_FILTER];
+    double storedDiffs[NUM_FILTER];
     double sumFilteredVelocity = 0.0;
 };
 
