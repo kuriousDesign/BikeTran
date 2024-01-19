@@ -162,14 +162,14 @@ void loop()
 {
   // updateIo();
   unsigned long timeNow = millis();
-  if (timeNow - 20 >= lastDisplayed_ms && iSerial.isConnected && true)
+  if (timeNow - 500 >= lastDisplayed_ms && iSerial.isConnected && true)
   {
     lastDisplayed_ms = timeNow;
-    sendMotionData();
 
     if (iSerial.status.mode != Modes::SHIFTING)
     {
       iSerial.sendStatus(true);
+      sendMotionData();
       sendShiftData();
     }
     if (errors.present)
@@ -203,6 +203,7 @@ void loop()
     {
       turnAllOff();
       sendErrorData();
+      sendMotionData();
       sendShiftData();
       iSerial.status.step = 1;
     }
@@ -286,6 +287,7 @@ void loop()
       turnAllOff();
       sendShiftData();
       printMotionData();
+      // sendDiagnosticData();
       iSerial.status.step = 1;
     }
 
@@ -317,7 +319,7 @@ void loop()
 
       if (gearChangeReq)
       {
-        sendShiftData();
+        // sendShiftData();
         // activateController(); // this will restart the activation time
         iSerial.debugPrintln("gearChangeReq...");
         atTargetCnt = 0;
@@ -344,7 +346,8 @@ void loop()
         iSerial.debugPrintln(String(1000.0 * float(stopWatch.stopTime - stopWatch.startTime) / float(stopWatch.loopCnt)));
         iSerial.debugPrint("stopWatch maxLoopTime: ");
         iSerial.debugPrintln(String(stopWatch.maxLoopTime));
-        printMotionData();
+
+        // sendDiagnosticData();
         turnOffController();
         iSerial.setNewMode(Modes::ERROR);
       }
@@ -544,12 +547,7 @@ void handleSerialCmds()
     break;
 
   case Cmds::SERIAL_OUTPUT: // prints serial information for use with a serial monitor, not to be used with high frequency (use INFO_CMD for that)
-    iSerial.writeCmdChrIdChr();
-    printDiagnosticDataToJsonString();
-    // iSerial.writeString(jsonString);
-    iSerial.writeNewline();
-    // iSerial.debugPrint("iSerial.status.mode: ");
-    // iSerial.debugPrintln(String(iSerial.status.mode));
+    sendDiagnosticData();
     break;
 
   case Cmds::PARAMS_SET: // set params
@@ -560,6 +558,16 @@ void handleSerialCmds()
     processUnrecognizedCmd();
     break;
   }
+}
+
+void sendDiagnosticData()
+{
+  iSerial.writeCmdChrIdChr();
+  printDiagnosticDataToJsonString();
+  // iSerial.writeString(jsonString);
+  iSerial.writeNewline();
+  // iSerial.debugPrint("iSerial.status.mode: ");
+  // iSerial.debugPrintln(String(iSerial.status.mode));
 }
 
 // returns true if current gear is at target position, updates actualGear and atTarget and atTargetAndStill
