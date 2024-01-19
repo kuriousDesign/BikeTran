@@ -85,19 +85,19 @@ int shiftTargetGearParam = 0;
 // SERIAL SHIFTER DATA
 int serialShiftReqType = 0;
 int serialShiftTargetGearParam = 0;
-
+int atTargetCnt = 0;
 // SHIFT DATA
-
+const float TARGET_TOLERANCE = 5.0;
 ShiftData shiftData;
 // MOTOR CONTROL LAW CONTROLLER
 bool homedStatus = false;
-const double MIN_SPEED_REF_PERC = 22.0;
+const double MIN_SPEED_REF_PERC = 25.0;   // formerly 22.0
 const double MAX_SPEEDREF_PD_PERC = 30.0; // max speedRef during PD control mode (perc)
 const double NUDGE_POWER_PERC = 100.0;    // speedRef during nudging
 const int NUDGE_TIME_MS = 70;
 const double NOMINAL_SPEEDREF = 120.0 / 255.0 * 100.0; // nominal speedRef when not near the target
-const double NEAR_TARGET_DIST = 100.0;                 // distance to be considered near the target, where mode switches to PD control
-PDController controller = PDController(1.25, 0.300);   // NOTE: modify these parameters to improve the control, start with pd set to zero
+const double NEAR_TARGET_DIST = 60.0;                  // distance to be considered near the target, where mode switches to PD control
+PDController controller = PDController(1.20, 0.000);   // NOTE: modify these parameters to improve the control, start with pd set to zero
 #define NUM_GEARS 12
 #define MIN_POSITION 0.0
 #define MAX_POSITION (MIN_POSITION + float(NUM_GEARS - 1) * 360.0)
@@ -119,7 +119,7 @@ float tempFloat;
 FaultData errors;
 
 // DIAGNOSTICS
-
+bool recording = false;
 unsigned long lastDisplayed_ms = 0;
 DiagnosticData diagnosticData;
 // int16_t cmdRefArray[NUM_DIAGNOSTICS_ARRAY];
@@ -277,22 +277,6 @@ void loop()
         iSerial.setNewMode(Modes::ABORTING);
       }
     }
-
-    /*
-        digitalWrite(PIN_MOTOR_PWM, LOW);
-        digitalWrite(PIN_MOTOR_DIR, LOW);
-        analogWrite(PIN_SOL, 255);
-        delay(SOLENOID_RETRACT_TIME_MS);
-        analogWrite(PIN_MOTOR_PWM, 100);
-        delay(NUDGE_TIME_MS);
-        digitalWrite(PIN_SOL, LOW);
-        analogWrite(PIN_MOTOR_PWM, 75);
-        delay(300);
-        digitalWrite(PIN_MOTOR_PWM, LOW);
-        // delay(1000);
-    digitalWrite(PIN_SOL, LOW);
-        */
-
     break;
 
   case Modes::IDLE:
@@ -314,6 +298,7 @@ void loop()
 
     break;
   case Modes::SHIFTING:
+
     if (iSerial.status.step == 0)
     {
       sendShiftData();
@@ -323,16 +308,19 @@ void loop()
       stopWatch.startTime = millis();
       stopWatch.loopCnt = 0;
       stopWatch.maxLoopTime = 0;
+      atTargetCnt = 0;
     }
     else if (iSerial.status.step == 1)
     {
+
       if (gearChangeReq)
       {
         sendShiftData();
         // activateController(); // this will restart the activation time
         iSerial.debugPrintln("gearChangeReq...");
+        atTargetCnt = 0;
       }
-      else if (atTargetAndStill && atTarget) // TODO: switch logic back to just use atTargetAndStill
+      else if (atTarget && (atTargetAndStill || atTargetCnt > 7)) // TODO: switch logic back to just use atTargetAndStill
       {
         iSerial.debugPrintln("at target!");
         // printMotionData();
@@ -376,6 +364,8 @@ void loop()
     {
       gearChangeReq = processShiftReqNum(shiftTypeReq, shiftTargetGearParam);
       sendShiftData();
+      atTarget = false;
+      atTargetAndStill = false;
 
       if (shiftTypeReq > 0 && gearChangeReq)
       {
@@ -566,27 +556,43 @@ void handleSerialCmds()
   }
 }
 
-// returns true if current gear is at target position, updates actualGear and atTarget
+// returns true if current gear is at target position, updates actualGear and atTarget and atTargetAndStill
 bool checkPositionAtTarget()
 {
 
   motionData.actualGear = round(motionData.actualPosition / 360.0) + 1;
 
   // if targetError < 5.0
-  float targetErrorTolerance = 5.0;
-  if (abs(shiftData.targetPosition - motionData.actualPosition) < targetErrorTolerance)
+
+  if (abs(shiftData.targetPosition - motionData.actualPosition) < TARGET_TOLERANCE)
   {
+    atTargetCnt++;
+
     motionData.actualGear = shiftData.targetGear;
     if (!atTarget)
     {
-      iSerial.debugPrintln("atTarget!");
+      // iSerial.debugPrintln("atTarget!");
     }
     atTarget = true;
+
+    if (!tracker.isMoving || atTargetCnt > 7)
+    {
+      if (!atTargetAndStill)
+      {
+        iSerial.debugPrintln("atTargetAndStill!");
+      }
+      atTargetAndStill = true;
+    }
+    else
+      atTargetAndStill = false;
+
     return true;
   }
   else
   {
+    atTargetCnt = 0;
     atTarget = false;
+    atTargetAndStill = false;
     return false;
   }
 }
@@ -655,7 +661,7 @@ void runAll()
     }
   }
   checkPositionAtTarget();
-  atTargetAndStill = atTarget && !tracker.isMoving;
+
   if (attemptedReading)
   {
     unsigned long scanTime = micros();
@@ -667,6 +673,7 @@ void runAll()
     stopWatch.prevScanTime = scanTime;
 
     readInputs();
+    recording = false;
     runController();
     writeOutputs();
     updateIo();
@@ -705,6 +712,13 @@ void writeOutputs()
   if (abs(outputs.MotorSpeed) > 100.0)
   {
     outputs.MotorSpeed = outputs.MotorSpeed / abs(outputs.MotorSpeed) * 100.0;
+  }
+  if (recording)
+  {
+    // storing diagnostic data into arrays
+    // diagnosticData.error[i_d] = round(controller.error);
+    diagnosticData.cmd[i_d] = round(outputs.MotorSpeed);
+    // i_d++;
   }
   analogWrite(PIN_MOTOR_PWM, round(outputs.MotorSpeed * 255.0));
   outputs.MotorSpeed = 0.0; // ALWAYS RESET TO 0.0
@@ -771,6 +785,8 @@ bool setTargetGear(int targetGearNum)
 
   shiftData.targetPosition = 360.0 * (shiftData.targetGear - 1);
   shiftData.startingPosition = round(motionData.actualPosition); // store the actualPosition at the time of gear change request
+  atTarget = false;
+  atTargetAndStill = false;
 
   iSerial.debugPrint("Target Gear: ");
   iSerial.debugPrintln(String(shiftData.targetGear));
@@ -827,7 +843,7 @@ void runController()
       speedRef = 0.0;
       solPwr = NUDGE_SOL_PWR_PERC;
     }
-    else if (activeTime_ms < SOLENOID_RETRACT_TIME_MS + NUDGE_TIME_MS && !tracker.isMoving)
+    else if (activeTime_ms < SOLENOID_RETRACT_TIME_MS + NUDGE_TIME_MS)
     {
 
       speedRef = NUDGE_POWER_PERC * sign;
@@ -840,7 +856,7 @@ void runController()
     }
     else if (abs(controller.error) <= NEAR_TARGET_DIST) // if error is within 180.0, switch to pd control and release solenoid
     {
-      if (controller.speedControl == 0)
+      if (controller.speedControl == 0 || abs(controller.error) <= TARGET_TOLERANCE)
       {
         speedRef = 0.0;
       }
@@ -874,9 +890,10 @@ void runController()
 
     if (i_d < NUM_DIAGNOSTICS_ARRAY)
     {
+      recording = true;
       // storing diagnostic data into arrays
       diagnosticData.error[i_d] = round(controller.error);
-      diagnosticData.cmd[i_d] = round(outputs.MotorSpeed);
+      // diagnosticData.cmd[i_d] = round(outputs.MotorSpeed);
       i_d++;
     }
     else if (i_d == NUM_DIAGNOSTICS_ARRAY)
