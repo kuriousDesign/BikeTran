@@ -30,9 +30,10 @@ bool OUTPUTS_DISABLED = false; // used for testing encoder and other stuff
 ////////////////////////////////////////////////////
 // INPUTS
 ////////////////////////////////////////////////////
-#define PIN_HOME_SW 8
+
 #define PIN_SHIFT_UP 15
 #define PIN_SHIFT_DOWN 16
+#define PIN_HOME_SW 17
 
 struct Inputs
 {
