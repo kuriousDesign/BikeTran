@@ -13,3 +13,10 @@ BUSY_PIN  7    // Purple Wire - Busy pin (if available)
 ## VCC AND GND
 connect display pin VCC to Arduino 5V (Gray Wire)
 connect display pin GND to Arduino GND (Brown Wire)
+
+
+#define RST_PIN         8
+#define DC_PIN          9
+#define CS_PIN          10
+#define BUSY_PIN        7
+#define PWR_PIN         6
