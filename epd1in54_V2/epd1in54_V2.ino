@@ -79,10 +79,10 @@ void setup()
     delay(100);
   }
 
-  // Serial.println("e-Paper clear and goto sleep");
-  // epd.HDirInit();
-  // epd.Clear();
-  // epd.Sleep();
+  Serial.println("e-Paper clear and goto sleep");
+  epd.HDirInit();
+  epd.Clear();
+  epd.Sleep();
 }
 
 void loop()
