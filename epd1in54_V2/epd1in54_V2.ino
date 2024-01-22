@@ -10,8 +10,8 @@ Paint paint(image, 0, 0);
 
 unsigned long time_start_ms;
 unsigned long time_now_s;
-#define COLORED     0
-#define UNCOLORED   1
+#define COLORED 0
+#define UNCOLORED 1
 
 void setup()
 {
@@ -60,7 +60,7 @@ void setup()
   epd.HDirInit();
   // epd.Display(IMAGE_DATA);
 
-  //Part display
+  // Part display
   epd.HDirInit();
   epd.DisplayPartBaseImage(IMAGE_DATA);
 
@@ -70,7 +70,8 @@ void setup()
 
   char i = 0;
   char str[10][10] = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"};
-  for (i = 0; i < 10; i++) {
+  for (i = 0; i < 10; i++)
+  {
     paint.Clear(UNCOLORED);
     paint.DrawStringAt(10, 10, str[i], &Font24, COLORED);
     epd.SetFrameMemoryPartial(paint.GetImage(), 80, 70, paint.GetWidth(), paint.GetHeight());
@@ -78,13 +79,12 @@ void setup()
     delay(100);
   }
 
-  Serial.println("e-Paper clear and goto sleep");
-  epd.HDirInit();
-  epd.Clear();
-  epd.Sleep();
+  // Serial.println("e-Paper clear and goto sleep");
+  // epd.HDirInit();
+  // epd.Clear();
+  // epd.Sleep();
 }
 
 void loop()
 {
-
 }
