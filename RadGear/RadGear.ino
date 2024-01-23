@@ -211,7 +211,7 @@ void loop()
     else if (iSerial.status.step == 1)
     {
       // auto clear the errors after 10 seconds
-      if (iSerial.modeTime() > 10000)
+      if (iSerial.modeTime() > 5000)
       {
         clearErrors();
       }
