@@ -39,7 +39,7 @@ struct Inputs
 {
   bool ShiftDownSw = false;
   bool ShiftUpSw = false;
-  bool HomeSw = false;
+  bool HomeSw = false; // Wired N.C., so that is is OFF when target is Detected
 };
 Inputs inputs;
 
@@ -93,10 +93,11 @@ const float TARGET_TOLERANCE = 5.0;
 ShiftData shiftData;
 // MOTOR CONTROL LAW CONTROLLER
 bool homedStatus = false;
-const double MIN_SPEED_REF_PERC = 25.0;              // formerly 22.0
-const double MAX_SPEEDREF_PD_PERC = 30.0;            // max speedRef during PD control mode (perc)
-const double NUDGE_POWER_PERC = 100.0;               // speedRef used during intial impulse (nudge) to get the motor to move (perc)
-const int NUDGE_TIME_MS = 150;                       // duration of intial impulse cmd to get the motor to move (ms)
+const double MIN_SPEED_REF_PERC = 25.0;   // formerly 22.0
+const double MAX_SPEEDREF_PD_PERC = 30.0; // max speedRef during PD control mode (perc)
+const double NUDGE_POWER_PERC = 100.0;    // speedRef used during intial impulse (nudge) to get the motor to move (perc)
+const int NUDGE_TIME_MS = 150;            // duration of intial impulse cmd to get the motor to move (ms)
+const int HOMING_NUDGE_TIME_MS = NUDGE_TIME_MS;
 const double NOMINAL_SPEEDREF_PERC = 30.0;           // nominal speedRef for runControler() when far from target (perc)
 const double NEAR_TARGET_DIST = 60.0;                // distance to be considered near the target, where mode switches to PD control
 PDController controller = PDController(1.20, 0.000); // NOTE: modify these parameters to improve the control, start with pd set to zero
@@ -244,8 +245,14 @@ void loop()
       deleteMe = time;
     }
     */
-
-    iSerial.setNewMode(Modes::RESETTING);
+    if (SKIP_HOMING)
+    {
+      iSerial.setNewMode(Modes::IDLE);
+    }
+    else
+    {
+      iSerial.setNewMode(Modes::RESETTING);
+    }
     break;
 
   case Modes::RESETTING:
@@ -256,26 +263,20 @@ void loop()
       turnAllOff();
       setTargetGear(motionData.actualGear);
       sendShiftData();
-      if (!SKIP_HOMING)
-      {
-        runHomingRoutine(true);
-        iSerial.status.step = 1;
-      }
-      else
-      {
-        iSerial.setNewMode(Modes::IDLE);
-      }
+
+      runHomingRoutine(true); // this resets the homing routine
+      iSerial.status.step = 1;
     }
     else if (iSerial.status.step == 1)
     {
       int homingStatus = runHomingRoutine(false);
 
-      if (100 == homingStatus)
+      if (100 == homingStatus) // HOMING DONE
       {
         iSerial.setNewMode(Modes::IDLE);
         setTargetGear(motionData.actualGear);
       }
-      else if (911 == homingStatus)
+      else if (911 == homingStatus) // HOMING ERROR
       {
         iSerial.setNewMode(Modes::ABORTING);
       }
@@ -325,7 +326,7 @@ void loop()
         iSerial.debugPrintln("gearChangeReq...");
         atTargetCnt = 0;
       }
-      else if (atTarget && (atTargetAndStill || atTargetCnt > 7) && !tracker.isMoving) // TODO: switch logic back to just use atTargetAndStill
+      else if (checkShiftCompleted()) // TODO: switch logic back to just use atTargetAndStill
       {
         iSerial.debugPrintln("at target!");
         iSerial.debugPrint("shiftTime(ms): ");
@@ -369,13 +370,19 @@ void loop()
   gearChangeReq = false;
   if (shiftTypeReq > 0)
   {
-    if (iSerial.status.mode == Modes::IDLE || iSerial.status.mode == Modes::SHIFTING)
+    if (!checkShiftTypeAndHomeSw(shiftTypeReq))
+    {
+      iSerial.debugPrintln("WARNING: downshift request not accept accepted because of homeSw state");
+    }
+    else if (iSerial.status.mode != Modes::IDLE && iSerial.status.mode != Modes::SHIFTING)
+    {
+      iSerial.debugPrintln("WARNING: shift request not accpeted because motor state not idle or already shifting");
+    }
+    else // NORMAL CASE
     {
       gearChangeReq = processShiftReqNum(shiftTypeReq, shiftTargetGearParam);
-
-      if (shiftTypeReq > 0 && gearChangeReq)
+      if (gearChangeReq)
       {
-
         iSerial.debugPrint("shiftType: ");
         iSerial.debugPrintln(String(shiftTypeReq));
         sendShiftData();
@@ -383,10 +390,6 @@ void loop()
         atTargetAndStill = false;
         initializeDiagnosticData();
       }
-    }
-    else
-    {
-      iSerial.debugPrintln("WARNING: shift request only accepted when motor is idle or shifting");
     }
   }
 
@@ -397,6 +400,16 @@ void loop()
 
   // DEBUG PASSTHROUGHS - comment out as needed
   // solenoids[0].setDebug(iSerial.debug);
+}
+
+// checks the homeSw state and shiftType, prevents downshifting if homeSw detects target
+bool checkShiftTypeAndHomeSw(int shiftTypeReq)
+{
+  if (!inputs.HomeSw && (shiftTypeReq == Shifter::ShiftTypes::DOWN || shiftTypeReq == Shifter::ShiftTypes::DOWN))
+  {
+    return false;
+  }
+  return true;
 }
 
 void printDiagnosticDataToJsonString()
@@ -538,6 +551,10 @@ void handleSerialCmds()
   case Cmds::ABSPOS_CMD:
     processAbsPosCmd();
     break;
+
+  case Cmds::HOME_CMD:
+    clearErrors();
+    iSerial.setNewMode(Modes::RESETTING);
 
   case Cmds::RELPOS_CMD:
     processRelPosCmd();
@@ -699,6 +716,11 @@ void runAll()
   // runAllSolenoids();
 }
 
+bool checkShiftCompleted()
+{
+  return atTarget && (atTargetAndStill || atTargetCnt > 7) && !tracker.isMoving;
+}
+
 void readInputs()
 {
   inputs.ShiftUpSw = digitalRead(PIN_SHIFT_UP);
@@ -758,15 +780,21 @@ void writeOutputs()
 
   // SOLENOID STOPPERS POWER - controls both solenoids responsible for stopping the motor
   // BOUND THE OUTPUT TO 0.0 to 100.0%
-  if (outputs.SolPwr > 100.0)
+  if (outputs.SolPwr >= 100.0)
   {
     outputs.SolPwr = 100.0;
+    digitalWrite(PIN_SOL, HIGH);
   }
-  else if (outputs.SolPwr < 0.0)
+  else if (outputs.SolPwr <= 0.0)
   {
     outputs.SolPwr = 0.0;
+    digitalWrite(PIN_SOL, LOW);
   }
-  analogWrite(PIN_SOL, round(outputs.SolPwr * 255.0));
+  else
+  {
+    digitalWrite(PIN_SOL, LOW);
+  }
+  // analogWrite(PIN_SOL, round(outputs.SolPwr * 255.0));
   outputs.SolPwr = 0.0; // ALWAYS RESET TO 0.0
 }
 
@@ -975,6 +1003,7 @@ void runController()
   }
 }
 
+// checks if there are any request for gear shifts, with priortity given to the physical buttons on the bike
 int checkForGearShiftRequests()
 {
   int shiftReqType = Shifter::ShiftTypes::NONE;
@@ -1220,10 +1249,8 @@ void setDirPinNegative()
 
 int runHomingRoutine(bool resetCmd)
 {
-  // new logic to write:
-
   // perform series of nudges with solenoids off until it is determined that the motor is in a locked position
-  // nudge in a positive direction if the homeSw is detects the target, nudge negitive if homeSw doesn't not detect the target
+  // nudge in a positive direction if the homeSw detects the target, nudge negitive if homeSw doesn't not detect the target
 
   static bool homingFirstScan = false;
   static int prevStep = 0;
@@ -1241,6 +1268,8 @@ int runHomingRoutine(bool resetCmd)
     homingFirstScan = true;
     stepStartedTime = millis();
     prevStep = homingStep;
+    iSerial.debugPrint("homeStep: ");
+    iSerial.debugPrintln(String(homingStep));
   }
   else
   {
@@ -1264,7 +1293,7 @@ int runHomingRoutine(bool resetCmd)
     homingStep = 10;
     break;
   case 10: // determine the nudge direction based on homeSw
-    if (inputs.HomeSw)
+    if (!inputs.HomeSw)
     {
       homingStep = 20;
     }
@@ -1273,7 +1302,7 @@ int runHomingRoutine(bool resetCmd)
       homingStep = 30;
     }
     break;
-  case 20: // NUDGE POSITIVE
+  case 20: // NUDGE POSITIVE - Get away from HomeSw
     // Record initial encoder position.
     // Then nudge motor in pos dir
 
@@ -1282,7 +1311,7 @@ int runHomingRoutine(bool resetCmd)
       nudgeRetryCnt++;
       initialPositionReading = motionData.actualPosition;
     }
-    else if (stepTime > NUDGE_TIME_MS)
+    else if (stepTime > HOMING_NUDGE_TIME_MS)
     {
       speedRefPerc = 0.0;
       homingStep = 21;
@@ -1310,7 +1339,7 @@ int runHomingRoutine(bool resetCmd)
       {
         homingStep = 20;
       }
-      else
+      else // retry count exceeded
       {
         homingStep = 911;
       }
@@ -1327,7 +1356,7 @@ int runHomingRoutine(bool resetCmd)
       nudgeRetryCnt++;
       initialPositionReading = motionData.actualPosition;
     }
-    else if (stepTime > NUDGE_TIME_MS)
+    else if (stepTime > HOMING_NUDGE_TIME_MS)
     {
       speedRefPerc = 0.0;
       homingStep = 31;
@@ -1372,7 +1401,7 @@ int runHomingRoutine(bool resetCmd)
     break;
 
   case 50: // Check homeSw Status
-    if (inputs.HomeSw)
+    if (!inputs.HomeSw)
     {
       homingStep = 80;
     }
@@ -1388,7 +1417,7 @@ int runHomingRoutine(bool resetCmd)
       activateController();
       // initialize the runController, signal downshift request
     }
-    else if (atTargetAndStill || atTarget) // TODO: switch logic back to just use atTargetAndStill
+    else if (checkShiftCompleted()) // TODO: switch logic back to just use atTargetAndStill
     {
       // printMotionData();
       turnOffController();
