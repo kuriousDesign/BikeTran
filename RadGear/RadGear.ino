@@ -554,7 +554,10 @@ void handleSerialCmds()
 
   case Cmds::HOME_CMD:
     clearErrors();
-    iSerial.setNewMode(Modes::RESETTING);
+    iSerial.writeCmdChrIdChr();
+    iSerial.writeNewline();
+    // iSerial.setNewMode(Modes::RESETTING);
+    break;
 
   case Cmds::RELPOS_CMD:
     processRelPosCmd();
