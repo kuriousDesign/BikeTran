@@ -139,10 +139,9 @@ void setup()
   pinMode(PIN_SOL, OUTPUT);
   // solenoids[Solenoids::STOPPER].init(PIN_SOL, SolenoidTypes::PWM, SolenoidSafety::CONTINUOUS_OK);
 
-  // initialize encoder
-  encoder.init();
+ 
 
-  // initialize shifter
+  // 
   pinMode(PIN_HOME_SW, INPUT);
 
   // initialize motor controller outputs
@@ -150,6 +149,7 @@ void setup()
   setDirPinPositive();
   setupPWM(PIN_MOTOR_PWM, PWM_FREQUENCY_HZ); // initialize motor control pin
 
+  // initialize encoder
   initializeEncoderSystem();
   // iSerial.debug = true;
   iSerial.setNewMode(Modes::ABORTING);
@@ -886,6 +886,7 @@ int getRandomNumber(int min, int max) // get reandom
 // collects a few encoder values and then zeroes the initial position, make sure the system is powered up with the motor in locked position
 void initializeEncoderSystem()
 {
+  encoder.init();
   // get a few encoder values
   int i = 0;
   while (i < 5)
