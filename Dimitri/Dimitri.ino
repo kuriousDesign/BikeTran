@@ -31,15 +31,24 @@ bool OUTPUTS_DISABLED = false; // used for testing encoder and other stuff
 // INPUTS
 ////////////////////////////////////////////////////
 
-#define PIN_SHIFT_UP 15
-#define PIN_SHIFT_DOWN 16
-#define PIN_HOME_SW 17
+#define PIN_MOTOR_PWM 4     
+#define PIN_MOTOR_DIR 7     // LOW FOR POSITIVE, HIGH FOR NEGATIVE, output for an input to the motor driver board
+#define PIN_SOL 6           // must be a pwm pin
+#define PIN_ENABLE 8
+#define PIN_SHIFT_UP 9      // 
+#define PIN_SHIFT_DOWN 10   // 
+#define PIN_POS_LIM 11      // 
+#define PIN_CAM 12          // 
+#define PIN_BIT0 22         // NOTE THAT PINS 22, 24, 26, & 28 ARE USED AS OUTPUTS FOR GEAR NUMBER
+#define NUM_BITS 4
 
 struct Inputs
 {
   bool ShiftDownSw = false;
   bool ShiftUpSw = false;
-  bool HomeSw = false; // Wired N.C., so that is is OFF when target is Detected
+  //bool HomeSw = false; // Wired N.C., so that is is OFF when target is Detected
+  bool CamSw = false;
+  bool PosLimSw = false;
 };
 Inputs inputs;
 
@@ -51,16 +60,15 @@ struct Outputs
 {
   float MotorSpeed = 0.0; // range -100.0% to 100.0%, this will control the direction pin as well
   float SolPwr = 0.0;     // range 0.0 % to 100 %
+  bool DisplayBits[NUM_BITS] = {false, false, false, false};
 };
 Outputs outputs;
 
 // MOTOR CONTROL BOARD
-#define PIN_MOTOR_PWM 11           // Used for controlling the motor driver board
 const int PWM_FREQUENCY_HZ = 2000; // Desired PWM frequency in Hz
-#define PIN_MOTOR_DIR 3            // LOW FOR POSITIVE, HIGH FOR NEGATIVE, output for an input to the motor driver board
 
 // SOLENOID STOPPER
-#define PIN_SOL 6 // must be a pwm pin
+
 const float NOMINAL_SOL_PWR_PERC = 100.0;
 const float NUDGE_SOL_PWR_PERC = 100.0;
 
@@ -88,11 +96,13 @@ int shiftTargetGearParam = 0;
 int serialShiftReqType = 0;
 int serialShiftTargetGearParam = 0;
 int atTargetCnt = 0;
+
 // SHIFT DATA
 const float TARGET_TOLERANCE = 5.0;
 ShiftData shiftData;
+
 // MOTOR CONTROL LAW CONTROLLER
-bool homedStatus = false;
+bool isHomed = false;
 const double MIN_SPEED_REF_PERC = 25.0;   // formerly 22.0
 const double MAX_SPEEDREF_PD_PERC = 30.0; // max speedRef during PD control mode (perc)
 const double NUDGE_POWER_PERC = 100.0;    // speedRef used during intial impulse (nudge) to get the motor to move (perc)
@@ -114,10 +124,13 @@ const int CONTROLLER_TIME_LIMIT_MS = 800; // max time the controller is allowed 
 bool atTarget = false;
 bool atTargetAndStill = false;
 
+
+// ISERIAL 
 ISerial iSerial;
 long tempLong;
 float tempFloat;
 
+// FAULTS
 FaultData errors;
 
 // DIAGNOSTICS
@@ -261,10 +274,9 @@ void loop()
     if (iSerial.status.step == 0)
     {
       turnAllOff();
-      setTargetGear(motionData.actualGear);
-      sendShiftData();
+      
 
-      runHomingRoutine(true); // this resets the homing routine
+      runHomingRoutine(); // this resets the homing routine
       iSerial.status.step = 1;
     }
     else if (iSerial.status.step == 1)
@@ -644,6 +656,7 @@ void processUnrecognizedCmd()
 
 void turnAllOff() // turn off all outputs
 {
+  disableMotor();
   turnOffController();
   outputs.MotorSpeed = 0.0;
   outputs.SolPwr = 0.0;
@@ -1251,7 +1264,7 @@ void setDirPinNegative()
   }
 }
 
-int runHomingRoutine(bool resetCmd)
+int runHomingRoutineOld(bool resetCmd)
 {
   // perform series of nudges with solenoids off until it is determined that the motor is in a locked position
   // nudge in a positive direction if the homeSw detects the target, nudge negitive if homeSw doesn't not detect the target
@@ -1436,11 +1449,11 @@ int runHomingRoutine(bool resetCmd)
       homingStep = 911;
     }
     break;
-  case 80: // zero and set homedStatus
+  case 80: // zero and set isHomed
     if (homingFirstScan)
     {
       tracker.zeroPosition(encoder.position);
-      homedStatus = true;
+      isHomed = true;
       homingStep = 100;
     }
     break;
@@ -1517,5 +1530,212 @@ void serializeFaultData(FaultData *msgPacket, char *data)
   {
     *q = msgPacket->list[i];
     q++;
+  }
+}
+
+void runHomingRoutineStepper()
+{
+  static int homingStartDir = 0; //1: positive, -1: negative
+  switch (iSerial.status.step)
+  {
+  case 0: // START HOMING
+      iSerial.debugPrintln("HOMING STARTED: press both shifters switches at the same time to proceed");
+      
+      setTargetGear(motionData.actualGear);
+      sendShiftData();
+      turnAllOff();
+      isHomed = false;
+      iSerial.status.step = 10;
+      break;
+
+  case 10: // WAIT FOR DOWN SHIFT SW
+      if (iShiftDownSw && iShiftUpSw)
+      {
+          enableMotor();
+          if (iCamSw){
+              iSerial.debugPrintln("Cam switch detected at homing start: moving to fine adjust");
+              iSerial.status.step = 30;
+          }
+          else if (iPosLimSw)
+          {
+              iSerial.debugPrintln("Pos Lim Switch detected at homing start: moving backwards to find cam switch");
+              homingStartDir = -1;
+              iSerial.status.step = 20;
+          }
+          else
+          {
+              iSerial.debugPrintln("Pos Lim Switch not detected at homing start: moving forwards to find cam switch");
+              homingStartDir = 1;
+              iSerial.status.step = 20;
+          }
+
+      }
+      break;
+
+  case 20: // MOVING AN INDEX UNTIL CAM SWITCH TURNS ON
+      // Serial.println("Homing: step 5");
+      if (stepper.distanceToGo() == 0)
+      {
+          stepper.setMaxSpeed(MAX_VELOCITY / 3);
+          stepper.move(homingStartDir*STEPS_PER_INDEX*1.1);
+          iSerial.status.step = 21;
+      }
+      break;
+  case 21:
+      if (iCamSw)
+      {
+          iSerial.debugPrintln("Cam switch detected: stopping.");
+          stepper.stop();
+          time_start_ms = millis();
+          iSerial.status.step = 22;
+      }
+      else if (stepper.distanceToGo() == 0)
+      {
+          iSerial.debugPrintln("ERROR! Expected the Cam switch to turn on before move finished");
+          iSerial.status.step = 911;
+      }
+      break;
+  case 22: // WAITING FOR STOP, WAITING ON CAM SWITCH AND THEN DECIDING
+      if (stepper.distanceToGo() == 0 && millis() - time_start_ms > 500)
+      {
+          if(iCamSw){
+              iSerial.debugPrintln("Cam switch is still on after the stop: now performing fine adjust");
+              stepper.setCurrentPosition(0);
+              iSerial.status.step = 30;
+          }
+          else{
+              iSerial.debugPrintln("Cam switch turned off while stopping: reversing direction find it again ");
+              homingStartDir*= -1;
+              iSerial.status.step = 20;
+          }
+      }
+      break;
+  case 30: // HOME FINE ADJUST: moving forwards until cam switch turns off
+      if (stepper.distanceToGo() == 0)
+      {
+          stepper.setMaxSpeed(MAX_VELOCITY / 10);
+          stepper.move(STEPS_PER_INDEX / 20);
+          iSerial.status.step = 31;
+      }
+      break;
+  case 31: // HOME FINE ADJUST: waiting for cam switch to turn off then stopping
+      if(!iCamSw){
+          iSerial.debugPrintln("Cam switch off: stopping then moving back");
+          stepper.stop();
+          time_start_ms = millis();
+          iSerial.status.step = 32;
+      }
+      else if (stepper.distanceToGo() == 0)
+      {
+          iSerial.debugPrintln("ERROR! Expected the Cam switch to turn off before move finished");
+          iSerial.status.step = 911;
+      }
+      break;
+  case 32: //HOME FINE ADJUST: moving backwards to center cam magnet with cam switch
+      if (stepper.distanceToGo() == 0 && millis() - time_start_ms > 500)
+      {
+          stepper.setMaxSpeed(MAX_VELOCITY / 10);
+          stepper.move(-STEPS_PER_INDEX / 50); //JOE NOTE: this value may need to be adjusted with each iteration of rig
+          iSerial.status.step = 33;
+      }
+      break;
+  case 33: //VERIFY CAM SWITCH IS ON
+      if (stepper.distanceToGo() == 0){
+          if(iCamSw){
+              iSerial.status.step = 50;
+          }
+          else 
+          {
+              iSerial.debugPrintln("ERROR! Expected the Cam switch to turn on after cam sw centering move finished");
+              iSerial.status.step = 911;
+          }
+      }
+      break;
+  case 50: // CHECKING POS LIM SW: INDEXING FORWARD IF NOT AT POS LIM SWITCH
+      if (iPosLimSw)
+      {
+          iSerial.debugPrintln("Pos Lim switch detected!: setting position");
+          iSerial.status.step = 80;
+      }
+      else {
+          updateGearNumber();
+          if(currentGear < NUM_GEARS){
+              stepper.setMaxSpeed(MAX_VELOCITY);
+              stepper.move(STEPS_PER_INDEX);
+              iSerial.status.step = 51;
+          } else {
+              iSerial.debugPrintln("ERROR! Pos Lim switch not after 12 indexes: positive lim switch is not working");
+              iSerial.status.step = 911;
+          
+          }
+      }
+      break;
+  case 51: // WAITING FOR INDEX TO FINISH
+
+      if (stepper.distanceToGo() == 0)
+      {
+          iSerial.status.step = 50;
+      }
+      break;
+  case 80: // SET CURRENT GEAR AND TARGET GEAR NUMBER
+      stepper.setCurrentPosition(STEPS_PER_INDEX * NUM_GEARS);
+      targetGear = NUM_GEARS;
+      updateGearNumber();
+      iSerial.debugPrintln("HOMING IS FINISHED! Release the down shift switch to continue");
+      iSerial.status.step = 90;
+      break;
+  case 90:
+      if (!iShiftDownSw)
+      {
+          stepper.setMaxSpeed(MAX_VELOCITY);
+          iSerial.status.step = 100;
+      }
+      break;
+
+  case 100: // DONE
+      // stepper.setMaxSpeed(MAX_VELOCITY);
+      // isHomed = true;
+      break;
+
+  case 110: // DEPRECATED: CALIBRATE HOME
+      int dist = 2;
+      if (iShiftDownSw)
+      {
+          stepper.move(-dist);
+          iSerial.status.step = 111;
+      }
+      else if (iShiftUpSw)
+      {
+          stepper.move(dist);
+          iSerial.status.step = 111;
+      }
+      break;
+  case 111:
+      if (stepper.distanceToGo() == 0)
+      {
+          iSerial.status.step = 110;
+          iSerial.debugPrint("Current Position: ");
+          iSerial.debugPrintln(String(stepper.currentPosition()));
+          // textDisplay(String(stepper.currentPosition()).c_str());
+      }
+      break;
+
+  case 911: // ERROR
+      disableMotor();
+      // isHomed = false;
+      break;
+  default:
+      break;
+  }
+
+  if (iSerial.status.step == 100)
+  {
+      iSerial.setNewMode(Dimitri::Modes::IDLE);
+  }
+  else if (iSerial.status.step == 911)
+  {
+      errorNumber = Dimitri::Errors::HOMING_FAILED;
+      iSerial.debugPrintln("ERROR! Homing failed, aborting");
+      iSerial.setNewMode(Dimitri::Modes::ABORTING);
   }
 }
