@@ -4,8 +4,6 @@
 #include <Arduino.h>
 #include "StickyInput.h"
 
-
-
 class Shifter
 {
 public:

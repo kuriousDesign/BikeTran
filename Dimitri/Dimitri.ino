@@ -2,6 +2,7 @@ bool FLIP_POSITIVE = false;          // This should normally be false, just used
 bool SHIFT_BUTTONS_DISABLED = false; // if this is true, the shift buttons will be disabled (ignored)
 bool SKIP_HOMING = true;
 bool OUTPUTS_DISABLED = false; // used for testing encoder and other stuff
+bool HAS_SOLENOID = false;    // if this is true, the solenoid will be used to hold the cam in place
 
 #include "Arduino.h"
 #include "ISerial.h"
@@ -11,35 +12,23 @@ bool OUTPUTS_DISABLED = false; // used for testing encoder and other stuff
 #include "Shifter.h"
 #include "CustomDataTypes.h"
 
-// PWM SIGNAL TO MOTOR DRIVER
-// 50Hz-20kHz, Amp 2.5V-5V
-
-// MOTOR INFO
-//  HALL SENSORS     DRIVER BOARD
-//  RED: +5VDC       RED
-//  BLK: GND         BLK
-//  GRN: HALL A      GRN
-//  BLU: HALL B      WHT
-//  YEL: HALL C      YEL
-
-// MOTOR PHASES
-//  RED: mA
-//  YEL: mB
-//  BLK: mC
-
 ////////////////////////////////////////////////////
 // INPUTS
 ////////////////////////////////////////////////////
 
 #define PIN_MOTOR_PWM 4     
-#define PIN_MOTOR_DIR 7     // LOW FOR POSITIVE, HIGH FOR NEGATIVE, output for an input to the motor driver board
-#define PIN_SOL 6           // must be a pwm pin
+#define PIN_MOTOR_DIR 7       // LOW FOR POSITIVE, HIGH FOR NEGATIVE, output for an input to the motor driver board
+#define PIN_SOL 6             // must be a pwm pin
 #define PIN_ENABLE 8
-#define PIN_SHIFT_UP 9      // 
-#define PIN_SHIFT_DOWN 10   // 
-#define PIN_POS_LIM 11      // 
-#define PIN_CAM 12          // 
-#define PIN_BIT0 22         // NOTE THAT PINS 22, 24, 26, & 28 ARE USED AS OUTPUTS FOR GEAR NUMBER
+#define PIN_SHIFT_UP 51       // ORANGE WIRE ON SHIFTER
+#define PIN_SHIFT_DOWN 53     // RED WIRE ON SHIFTER
+#define PIN_POS_LIM 11        // 
+#define PIN_CAM 12            // 
+#define PIN_LINEAR_ENC_A 21   //
+#define PIN_LINEAR_ENC_B 23   //
+#define PIN_TOGGLE_ENC_A 25   //
+#define PIN_TOGGLE_ENC_B 27   //
+#define PIN_EINK_BIT0 22      // NOTE THAT PINS 22, 24, 26, & 28 ARE USED AS OUTPUTS FOR GEAR NUMBER
 #define NUM_BITS 4
 
 struct Inputs
@@ -68,16 +57,28 @@ Outputs outputs;
 const int PWM_FREQUENCY_HZ = 2000; // Desired PWM frequency in Hz
 
 // SOLENOID STOPPER
-
 const float NOMINAL_SOL_PWR_PERC = 100.0;
 const float NUDGE_SOL_PWR_PERC = 100.0;
 
-// ENCODER - note that the rs485 needs to be connected to the serial1 rx and tx pins
-Encoder encoder;
-EncoderTracker tracker(double(READRATE_uS + 50) / 1000.0);
-unsigned long lastRead_us = 0;
 
-unsigned long previousMillis = 0; // Initialize previousMillis to 0
+
+
+enum Motors {
+  TOGGLE=0,
+  LINEAR=1,
+}
+
+// ENCODERS
+Encoder encoders[2] = {
+  Encoder(PIN_TOGGLE_ENC_A, PIN_TOGGLE_ENC_B),
+  Encoder(PIN_LINEAR_ENC_A, PIN_LINEAR_ENC_B)
+};
+
+Motor motors[2] = {
+  Motor(PIN_TOGGLE_ENC_A, PIN_TOGGLE_ENC_B, &encoders[TOGGLE]),
+  Motor(PIN_LINEAR_ENC_A, PIN_LINEAR_ENC_B, &encoders[LINEAR])
+};
+
 
 // MOTION PROFILE
 MotionData motionData;
@@ -102,7 +103,7 @@ const float TARGET_TOLERANCE = 5.0;
 ShiftData shiftData;
 
 // MOTOR CONTROL LAW CONTROLLER
-bool isHomed = false;
+
 const double MIN_SPEED_REF_PERC = 25.0;   // formerly 22.0
 const double MAX_SPEEDREF_PD_PERC = 30.0; // max speedRef during PD control mode (perc)
 const double NUDGE_POWER_PERC = 100.0;    // speedRef used during intial impulse (nudge) to get the motor to move (perc)

@@ -1,6 +1,11 @@
 # Dimitri
 This is the firmware to control the gear shifting for the demo model. 
 
+
+## SSH into joe's dell
+ssh joeke@10.244.0.10
+pw: Samantha12
+
 ## Serial Interfacing Specification
 The serial interface on the arduino mega will provide the following functionality. Please note that all commands need to be terminated with carriage return '\n' character
 

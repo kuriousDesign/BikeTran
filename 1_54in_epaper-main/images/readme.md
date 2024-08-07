@@ -1,1 +1,0 @@
-wiring diagrams etc.

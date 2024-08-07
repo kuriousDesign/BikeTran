@@ -15,6 +15,7 @@ public:
     double errorChange;
     double speedControl;
 
+    // Calculates the speed control with a range of -100.0 to 100.0%
     double calculatePDSpeedControl(double currentPosition, double targetPosition)
     {
         // Calculate the error (position error)

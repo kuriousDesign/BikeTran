@@ -39,6 +39,7 @@ struct MotionData
     int8_t actualGear = 1; // range is from 1 to NUM_GEARS, does not start at 0
     float actualPosition = 0.0;
     float actualVelocity = 0.0; // Initialize the stored position
+    float targetPosition = 0.0;
 };
 
 #define SHIFTDATAPACKETSIZE 5 // 5 bytes
