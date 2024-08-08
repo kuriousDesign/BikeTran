@@ -36,6 +36,7 @@ public:
     unsigned long previousMillisUp = 0;
     unsigned long previousMillisDown = 0;
 
+    // checks the states of the shifter sticky inputs and returns the shift type
     int checkShiftReq()
     {
         int shiftNum = ShiftTypes::NONE;

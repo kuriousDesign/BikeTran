@@ -16,20 +16,30 @@ bool HAS_SOLENOID = false;    // if this is true, the solenoid will be used to h
 // INPUTS
 ////////////////////////////////////////////////////
 
-#define PIN_MOTOR_PWM 4     
-#define PIN_MOTOR_DIR 7       // LOW FOR POSITIVE, HIGH FOR NEGATIVE, output for an input to the motor driver board
-#define PIN_SOL 6             // must be a pwm pin
-#define PIN_ENABLE 8
-#define PIN_SHIFT_UP 51       // ORANGE WIRE ON SHIFTER
-#define PIN_SHIFT_DOWN 53     // RED WIRE ON SHIFTER
-#define PIN_POS_LIM 11        // 
-#define PIN_CAM 12            // 
-#define PIN_LINEAR_ENC_A 21   //
-#define PIN_LINEAR_ENC_B 23   //
-#define PIN_TOGGLE_ENC_A 25   //
-#define PIN_TOGGLE_ENC_B 27   //
+// TOGLGLE MOTOR - RED: mtr+, WHITE: mtr-, BLUE: encVCC, BLACK: encGND,  YELLOW: encA, GREEN: encB,
+// when motor has positive power, it moves the motor in the engaged direction
+#define PIN_TOGGLE_EN 3
+#define PIN_TOGGLE_PWM 4     
+#define PIN_TOGGLE_FWD 5      // 
+#define PIN_TOGGLE_REV 6      // 
+
+// LINEAR MOTOR - RED: mtr+, WHITE: mtr-, BLUE: encGND, BLACK: encVCC,  YELLOW: encA, GREEN: encB,
+// when motor has positive power, it moves the motor in the down shift direction
+#define PIN_LINEAR_EN 7
+#define PIN_LINEAR_PWM 8
+#define PIN_LINEAR_FWD 9       
+#define PIN_LINEAR_REV 10      
+
+#define PIN_LINEAR_ENC_A 18   //
+#define PIN_LINEAR_ENC_B 19   //
+#define PIN_TOGGLE_ENC_A 20   //
+#define PIN_TOGGLE_ENC_B 21   //
 #define PIN_EINK_BIT0 22      // NOTE THAT PINS 22, 24, 26, & 28 ARE USED AS OUTPUTS FOR GEAR NUMBER
 #define NUM_BITS 4
+#define PIN_POS_LIM 41        // 
+#define PIN_CAM 43            // 
+#define PIN_SHIFT_UP 51       // ORANGE WIRE ON SHIFTER
+#define PIN_SHIFT_DOWN 53     // RED WIRE ON SHIFTER
 
 struct Inputs
 {

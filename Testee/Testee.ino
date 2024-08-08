@@ -26,7 +26,7 @@ void setup() {
 
 //872
 
-//2292 for 3 index
+//2292 for 3 index (767)
 
 long oldPosition  = -999;
 
