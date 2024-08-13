@@ -12,6 +12,7 @@ enum Modes : int32_t //
     RESETTING = 50,
     IDLE = 100,
     SHIFTING = 200, // while shifting, the controller is active
+    MANUAL = 1100,
 };
 
 enum Events : int

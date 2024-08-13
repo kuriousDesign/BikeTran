@@ -7,11 +7,27 @@
 
 class Motor {
 public:
-    Motor(uint8_t* fwdPin, uint8_t* revPin, uint8_t* speedPin, Encoder* encoder);
+    struct Cfg {
+        int8_t homingDir; //-1 for reverse, 1 for forward
+        uint8_t homingType; //0 for none, 1 for home swith, 2 for limit switch, 3 for hardstop
+        String unit; //'mm' or 'deg' for example
+        double pulsesPerUnit;
+        //double maxVelocity;
+        //double maxAcceleration;
+        double softLimitPositive; //units
+        double softLimitNegative; //units
+        bool invertDir;
+        double positionTol; //units
+        double zeroVelocityTol; //units
+    };
+    Motor(uint8_t* dirPin, uint8_t* speedPin, Encoder* encoder, Cfg* cfg);
 
     bool isHomed = false;
-    
+    bool isEnabled = false;
+    bool atPosition;
+    bool isStill;
     double actualPosition;
+    int32_t actualEncoderPulses;
     double actualVelocity;
     double targetPosition;
     int8_t targetDir; //used during jogging
@@ -25,22 +41,16 @@ public:
         HOLD_POSITION = 4
     };
     int16_t state = States::KILLED;
+    bool zero();
+    bool setPosition(double position);
+    bool enable();
     bool moveAbs(double position);
-    bool jogUsingPower(int8_t dir, double powerPercent);
+    bool jogUsingPower(int8_t dir, double powerPercent); //dir: -1 for negative, 1 for positive
     bool stop();
     bool disable();
     bool hold_position();
 
-    struct Cfg {
-        int8_t homingDir; //-1 for reverse, 1 for forward
-        uint8_t homingType; //0 for none, 1 for home swith, 2 for limit switch, 3 for hardstop
-        String unit; //'mm' or 'deg' for example
-        double gearRatio;
-        double maxVelocity;
-        double maxAcceleration;
-        double softLimitPositive;
-        double softLimitNegative;
-    };
+
 
     void init();
     double error;
@@ -58,8 +68,8 @@ private:
     static void timerISR();
     void handleTimerISR();
 
-    uint8_t* _fwdPin;
-    uint8_t* _revPin;
+    Cfg* _cfg;
+    uint8_t* _dirPin;
     uint8_t* _speedPin;
     Encoder* _encoder;
     int16_t _step;

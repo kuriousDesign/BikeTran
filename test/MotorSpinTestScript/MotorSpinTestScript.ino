@@ -32,8 +32,6 @@
 #define PIN_SHIFT_UP 51       // ORANGE WIRE ON SHIFTER
 #define PIN_SHIFT_DOWN 53     // RED WIRE ON SHIFTER
 
-
-
 void setup(){
     pinMode(PIN_TOGGLE_PWM, OUTPUT);
     pinMode(PIN_TOGGLE_DIR, OUTPUT);
@@ -73,7 +71,6 @@ void runToggleMotor(){
     } else if(digitalRead(PIN_SHIFT_DOWN) == LOW){
         analogWrite(PIN_TOGGLE_PWM, 200);
         digitalWrite(PIN_TOGGLE_DIR, HIGH);
-
     } else {
         digitalWrite(PIN_TOGGLE_PWM, LOW);
     }
@@ -86,7 +83,6 @@ void runLinearMotor(){
     } else if(digitalRead(PIN_SHIFT_DOWN) == LOW){
         analogWrite(PIN_LINEAR_PWM, 200);
         digitalWrite(PIN_LINEAR_DIR, LOW);
-
     } else {
         digitalWrite(PIN_LINEAR_PWM, LOW);
     }

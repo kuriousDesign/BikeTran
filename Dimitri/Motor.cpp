@@ -1,11 +1,23 @@
 #include "Motor.h"
+#include <Encoder.h>
+#include <TimerOne.h>
 
 // Initialize static member
 Motor* Motor::instance = nullptr;
 
-Motor::Motor(uint8_t* fwdPin, uint8_t* revPin, uint8_t* speedPin, Encoder* encoder)
-    : _fwdPin(fwdPin), _revPin(revPin), _speedPin(speedPin), _encoder(encoder) {
+Motor::Motor(uint8_t* dirPin, uint8_t* speedPin, Encoder* encoder, Cfg* cfg)
+    : _dirPin(dirPin), _speedPin(speedPin), _encoder(encoder), _cfg(cfg) {
     instance = this;
+}
+
+bool Motor::zero() {
+    _encoder->write(0);
+    return true;
+}
+
+bool Motor::setPosition(double position) {
+    _encoder->write(round(position*_cfg->pulsesPerUnit));
+    return true;
 }
 
 bool Motor::moveAbs(double position) {
@@ -32,6 +44,13 @@ bool Motor::stop() {
     return true;
 }
 
+bool Motor::enable() {
+    if (state == States::KILLED) {
+        state = States::IDLE;
+    }
+    return true;
+}
+
 bool Motor::disable() {
     targetPower = 0.0;
     _outputPower = 0.0;
@@ -49,8 +68,7 @@ bool Motor::hold_position() {
 }
 
 void Motor::init() {
-    pinMode(*_fwdPin, OUTPUT);
-    pinMode(*_revPin, OUTPUT);
+    pinMode(*_dirPin, OUTPUT);
     pinMode(*_speedPin, OUTPUT);
     
     Timer1.initialize(1000); // Initialize timer to trigger every 1000 microseconds
@@ -60,19 +78,21 @@ void Motor::init() {
 void Motor::run() {
     switch (state) {
     case States::KILLED:
+        isEnabled = false;
         _outputPower = 0.0;
         break;
     case States::HOMING:
         break;
     
     case States::IDLE:
+        isEnabled = true;
         _outputPower = 0.0;
         break;
     case States::JOGGING:
         _outputPower = targetPower;
         break;
     case States::MOVING:
-        if (actualPosition == targetPosition) {
+        if (atPosition) {
             state = States::IDLE;
         } else {
             _outputPower = pdControl();
@@ -86,16 +106,13 @@ void Motor::run() {
     }
 
     if (_outputPower > 0) {
-        digitalWrite(*_fwdPin, HIGH);
-        digitalWrite(*_revPin, LOW);
+        digitalWrite(*_dirPin, !_cfg->invertDir);
     }
     else if (_outputPower < 0) {
-        digitalWrite(*_fwdPin, LOW);
-        digitalWrite(*_revPin, HIGH);
+        digitalWrite(*_dirPin, _cfg->invertDir);
     }
     else {
-        digitalWrite(*_fwdPin, LOW);
-        digitalWrite(*_revPin, LOW);
+        digitalWrite(*_dirPin, false);
     }
 
     if (_outputPower < -100.0) {
@@ -129,7 +146,8 @@ void Motor::timerISR() {
 void Motor::handleTimerISR() {
     unsigned long currentTime = micros();
     //read the encoder and scale to units
-    actualPosition = double(_encoder->read())/_countsPerUnit;
+    actualEncoderPulses = _encoder->read();
+    actualPosition = double(actualEncoderPulses)/_cfg->pulsesPerUnit;
     lastPositions[2] = lastPositions[1];
     lastPositions[1] = lastPositions[0];
     lastPositions[0] = actualPosition;
@@ -137,6 +155,19 @@ void Motor::handleTimerISR() {
     lastTimes[2] = lastTimes[1];
     lastTimes[1] = lastTimes[0];
     lastTimes[0] = currentTime;
+
+    // Check if the motor is at the target position
+    atPosition = true;
+    for (int i = 0; i < 3; i++) {
+        if (abs(lastPositions[i] - targetPosition) > _cfg->positionTol) {
+            atPosition = false;
+        }
+    }
+    isStill = true;
+    if (abs(actualVelocity) > _cfg->zeroVelocityTol) {
+        atPosition = false;
+        isStill = false;
+    }
 
     if (lastTimes[2] != 0) {
         double deltaPosition = lastPositions[0] - lastPositions[2];

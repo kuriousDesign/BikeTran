@@ -67,5 +67,7 @@ Command reply: json string containing the following keys and data
 ## Dependency Libraries
 ISerial (custom lib from FirmwareWithSerialInterface by KuriousDesign)
 SafeString - by Matthew Ford (Library Manager)
+LoopTimer - included with SafeString
 jsonlib - by Justin Shaw (Library Manager)
 ArduinoJson - by Benoit Blanchon 
+Encoder - by Paul S
