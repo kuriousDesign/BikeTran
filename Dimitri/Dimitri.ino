@@ -1,5 +1,6 @@
 bool SHIFT_BUTTONS_DISABLED = false; // if this is true, the shift buttons will be disabled (ignored)
 bool START_IN_MANUAL= true;
+#define SCAN_TIME_US 1000 
 
 #include "Arduino.h"
 #include "ISerial.h"
@@ -8,21 +9,22 @@ bool START_IN_MANUAL= true;
 #include "CustomDataTypes.h"
 #include "Motor.h"
 
+
 ////////////////////////////////////////////////////
 // INPUTS
 ////////////////////////////////////////////////////
 
 // TOGLGLE MOTOR - RED: mtr+, WHITE: mtr-, BLUE: encVCC, BLACK: encGND,  YELLOW: encA, GREEN: encB,
 // when motor has positive power, it moves the motor in the engaged direction
-#define PIN_TOGGLE_DIR 4   
-#define PIN_TOGGLE_PWM 5
+#define PIN_TOGGLE_DIR 12   
+#define PIN_TOGGLE_PWM 3
 #define PIN_TOGGLE_CURRENT A0     
    
 // LINEAR MOTOR - RED: mtr+, WHITE: mtr-, BLUE: encGND, BLACK: encVCC,  YELLOW: encA, GREEN: encB,
 // when motor has positive power, it moves the motor in the down shift direction
-#define PIN_LINEAR_PWM 6
-#define PIN_LINEAR_DIR 7     
-#define PIN_LINEAR_CURRENT A1    
+#define PIN_LINEAR_PWM 11
+#define PIN_LINEAR_DIR 13     
+#define PIN_LINEAR_CURRENT A1   
   
 #define PIN_LINEAR_ENC_A 18   //
 #define PIN_LINEAR_ENC_B 19   //
@@ -71,14 +73,16 @@ Encoder encoders[NUM_MOTORS] = {
 };
 
 Motor::Cfg motorCfgs[NUM_MOTORS] = {
-  {-1, 2, "deg", 900.0, 180.0, 0.0, false, 5.0, 5.0}, // TOGGLE homeDir, homeType, unit, pulsesPerUnit, softLimitPositive, softLimitNegative, invertDir, positionTol, zeroVelocityTol
-  {1, 2, "gear", 767.0, 12.0, 1.0, true, 0.05, 0.1} // LINEAR
+  {"toggle",-1, 2, "deg", 900.0, 1000.0, 180.0, 0.0, true, 5.0, 5.0}, // TOGGLE name, homeDir, homeType, unit, pulsesPerUnit, maxVelocity, softLimitPositive, softLimitNegative, invertDir, positionTol, zeroVelocityTol
+  {"linear",1, 2, "gear", 767.0, 20.0, 12.0, 1.0, true, 0.05, 0.1} // LINEAR
 };
 
+
 Motor motors[NUM_MOTORS] = {
-  Motor(PIN_TOGGLE_ENC_A, PIN_TOGGLE_ENC_B, &encoders[Motors::TOGGLE], &motorCfgs[Motors::TOGGLE]),
-  Motor(PIN_LINEAR_ENC_A, PIN_LINEAR_ENC_B, &encoders[Motors::LINEAR], &motorCfgs[Motors::LINEAR])
+  Motor(PIN_TOGGLE_DIR, PIN_TOGGLE_PWM, &encoders[Motors::TOGGLE], &motorCfgs[Motors::TOGGLE],true),
+  Motor(PIN_LINEAR_DIR, PIN_LINEAR_PWM, &encoders[Motors::LINEAR], &motorCfgs[Motors::LINEAR],true)
 };
+
 
 MotionData motionData;
 
@@ -127,6 +131,9 @@ DiagnosticData diagnosticData;
 // int i_d = 0;
 String jsonString = "";
 
+// LOOP SCAN RATE
+unsigned long lastUpdateUs = 0;
+
 void setup()
 {
   iSerial.init();
@@ -135,193 +142,349 @@ void setup()
   iSerial.debug = true;
 
   iSerial.setNewMode(Modes::ABORTING);
-
+  
   pinMode(PIN_TOGGLE_CURRENT, INPUT);
   pinMode(PIN_LINEAR_CURRENT, INPUT);
+  pinMode(PIN_LINEAR_POS_LIM, INPUT_PULLUP);
+  pinMode(PIN_TOGGLE_NEG_LIM, INPUT_PULLUP);
+  pinMode(PIN_SHIFT_UP, INPUT_PULLUP);
+  pinMode(PIN_SHIFT_DOWN, INPUT_PULLUP);
+  //pinMode(PIN_TOGGLE_DIR, OUTPUT);
+  //pinMode(PIN_TOGGLE_PWM, OUTPUT);
+  //pinMode(PIN_LINEAR_PWM, OUTPUT);
+  //pinMode(PIN_LINEAR_DIR, OUTPUT);
 
   // encoder.setDebug(true);
+  motors[Motors::TOGGLE].setDebug(true);
+  motors[Motors::LINEAR].setDebug(true);
+
+  lastUpdateUs = micros();
 }
 
 // int deleteMe = 0;
 // int deleteMeSign = 1;
 StopWatch stopWatch;
+unsigned long timeNow = millis();
+
+
+int tempInt = 0;
+
 void loop()
 {
-  // updateIo();
-  readInputs();
-  unsigned long timeNow = millis();
-  if (timeNow - 500 >= lastDisplayed_ms && (iSerial.isConnected || true))
+  unsigned long timeNowUs = micros();
+  if (timeNowUs - lastUpdateUs > SCAN_TIME_US)
   {
-    lastDisplayed_ms = timeNow;
-    iSerial.debugPrint("linear motor encoder pulses:");
-    iSerial.debugPrintln(String(motors[Motors::LINEAR].actualEncoderPulses));
-
-    if (errors.present)
-    {
-      sendErrorData();
+    if(timeNowUs - lastUpdateUs > 1.10*SCAN_TIME_US){
+      iSerial.debugPrintln("WARNING: long scan time detected: " + String(timeNowUs - lastUpdateUs) + "usec");
     }
-  }
+    lastUpdateUs = timeNowUs;
+    for (int i = 0; i < NUM_MOTORS; i++)
+    {
+      motors[i].update();
+    }
+    readInputs();
+    timeNow = millis();
+  
+    if (timeNow - lastDisplayed_ms >= 500)
+    {
+      lastDisplayed_ms = timeNow;
+      
+      
+      //iSerial.debugPrint("toggle motor encoder pulses:");
+      //iSerial.debugPrintln(String(motors[Motors::TOGGLE].actualEncoderPulses));
+      //iSerial.debugPrint("Toggle Neg Lim Sw: ");
+      //iSerial.debugPrintln(String(inputs.ToggleNegLimSw));
 
-  switch (iSerial.status.mode)
-  {
-    case Modes::ABORTING:
-      turnAllOff();
-      iSerial.setNewMode(Modes::KILLED); // TODO: this may break the raspi code, may want raspi to initiate the mode change
-      break;
-    case Modes::KILLED:
-      turnAllOff();
+      if (false)
+      {
+        iSerial.debugPrint("TOGGLE MOTOR Actual Position: ");
+        iSerial.debugPrintln(String(encoders[Motors::TOGGLE].read()));
+      }
 
       if (errors.present)
       {
-        iSerial.setNewMode(Modes::ERROR);
+        sendErrorData();
       }
-      else
-      {
-        iSerial.setNewMode(Modes::INACTIVE);
-      }
+    }
 
-      break;
-    case Modes::ERROR:
-      if (iSerial.status.step == 0)
-      {
+    switch (iSerial.status.mode)
+    {
+      case Modes::ABORTING:
         turnAllOff();
-        iSerial.status.step = 1;
-      }
-      else if (iSerial.status.step == 1)
-      {
-        // auto clear the errors after 5 seconds
-        if (iSerial.modeTime() > 5000)
+        iSerial.setNewMode(Modes::KILLED); // TODO: this may break the raspi code, may want raspi to initiate the mode change
+        break;
+      case Modes::KILLED:
+        turnAllOff();
+        
+        if (errors.present)
         {
-          clearErrors();
+          iSerial.setNewMode(Modes::ERROR);
         }
-        if (!errors.present)
+        else
         {
           iSerial.setNewMode(Modes::INACTIVE);
         }
-      }
 
-      break;
-    case Modes::INACTIVE:
-      turnAllOff();
-      if (START_IN_MANUAL)
-      {
-        iSerial.setNewMode(Modes::MANUAL);
-      }
-      else
-      {
-        iSerial.setNewMode(Modes::RESETTING);
-      }
-      break;
+        break;
+      case Modes::ERROR:
+        if (iSerial.status.step == 0)
+        {
+          turnAllOff();
+          iSerial.status.step = 1;
+        }
+        else if (iSerial.status.step == 1)
+        {
+          // auto clear the errors after 5 seconds
+          if (iSerial.modeTime() > 5000)
+          {
+            clearErrors();
+          }
+          if (!errors.present)
+          {
+            iSerial.setNewMode(Modes::INACTIVE);
+          }
+        }
 
-    case Modes::RESETTING:
-      // TODO: insert homing logic here, home switch should be wired n.c.
-
-      if (iSerial.status.step == 0)
-      {
+        break;
+      case Modes::INACTIVE:
         turnAllOff();
-        //runHomingRoutine(); // this resets the homing routine
-        iSerial.status.step = 1;
-      }
+        if (START_IN_MANUAL)
+        {
+          //motors[Motors::TOGGLE].enable();
+          iSerial.setNewMode(Modes::MANUAL);
 
-      break;
+        }
+        else
+        {
+          iSerial.setNewMode(Modes::RESETTING);
+        }
+        break;
 
-    case Modes::IDLE:
-      if (iSerial.status.step == 0)
+      case Modes::RESETTING:
+        // TODO: insert homing logic here, home switch should be wired n.c.
+
+        if (iSerial.status.step == 0)
+        {
+          turnAllOff();
+          //runHomingRoutine(); // this resets the homing routine
+          iSerial.status.step = 1;
+        }
+
+        break;
+
+      case Modes::IDLE:
+        if (iSerial.status.step == 0)
+        {
+          iSerial.status.step = 1;
+        }
+
+        if (errors.present)
+        {
+          iSerial.setNewMode(Modes::ABORTING);
+        }
+        else if (gearChangeReq)
+        {
+          iSerial.setNewMode(Modes::SHIFTING);
+        }
+
+        break;
+      case Modes::SHIFTING:
+        break;
+
+      case Modes::MANUAL:
+
+        if (iSerial.status.step == 0)
+        {
+          motors[Motors::TOGGLE].enable();
+          if(motors[Motors::TOGGLE].getState() == Motor::States::IDLE){
+            iSerial.debugPrintln("HOMING - Moving toggle motor to Disengaged Position");
+            iSerial.resetModeTime();
+            iSerial.status.step = 5;
+          }
+        }
+        else if (iSerial.status.step == 5){
+          motors[Motors::TOGGLE].jogUsingPower(-1, 60);
+          //digitalWrite(PIN_TOGGLE_DIR, motorCfgs[Motors::TOGGLE].invertDir);
+          //analogWrite(PIN_TOGGLE_PWM, 255);
+
+          if (inputs.ToggleNegLimSw || iSerial.modeTime() > 700){ 
+            //motors[Motors::TOGGLE].zero();
+            //analogWrite(PIN_TOGGLE_PWM, 0);
+            motors[Motors::TOGGLE].stop();
+            iSerial.resetModeTime();
+            iSerial.debugPrintln("HOMING - Moving toggle motor to Disengaged Position");
+            iSerial.status.step = 6;
+          } else if (iSerial.modeTime() > 2000){
+            iSerial.debugPrintln("HOMING - Error finding Toggle Neg Lim Sw");
+            iSerial.status.step = 911; //error
+          }
+        }
+        else if (iSerial.status.step == 6){
+          
+          if(iSerial.modeTime() > 1000){
+            //analogWrite(PIN_TOGGLE_PWM, 0);
+            //encoders[Motors::TOGGLE].write(0);
+            iSerial.debugPrint("TOGGLE MOTOR Actual Position Before zero(): ");
+            iSerial.debugPrintln(String(encoders[Motors::TOGGLE].read()));
+            motors[Motors::TOGGLE].zero();
+            iSerial.debugPrint("TOGGLE MOTOR Actual Position After zero(): ");
+            iSerial.debugPrintln(String(encoders[Motors::TOGGLE].read()));
+            iSerial.resetModeTime();
+            iSerial.status.step = 10;
+          }
+          else if (iSerial.modeTime() > 200){
+            motors[Motors::TOGGLE].stop();
+          }
+        }
+        else if (iSerial.status.step == 10){
+          motors[Motors::TOGGLE].jogUsingPower(1, 100.0);
+          //digitalWrite(PIN_TOGGLE_DIR, !motorCfgs[Motors::TOGGLE].invertDir);
+          //analogWrite(PIN_TOGGLE_PWM, 255);
+          if(encoders[Motors::TOGGLE].read() > 700){
+            iSerial.resetModeTime();
+            iSerial.status.step = 20;
+          }else if (iSerial.modeTime() > 2000){
+            iSerial.debugPrintln("TOGGLE MOTOR Error While Moving to Disengaged Position");
+            iSerial.debugPrint("TOGGLE MOTOR Actual Position: ");
+            iSerial.debugPrintln(String(encoders[Motors::TOGGLE].read()));
+            iSerial.status.step = 911; //error
+          }
+        }
+        else if (iSerial.status.step == 20){
+          //analogWrite(PIN_TOGGLE_PWM, 0);
+          motors[Motors::TOGGLE].stop();
+          motors[Motors::LINEAR].enable();
+          if(motors[Motors::LINEAR].getState() == Motor::States::IDLE && motors[Motors::TOGGLE].getState() == Motor::States::IDLE){
+            iSerial.debugPrintln("HOMING - Moving linear motor to positive lim sw");
+            iSerial.resetModeTime();
+            iSerial.status.step = 21;
+          }
+        }
+        else if (iSerial.status.step == 21){
+
+          //analogWrite(PIN_LINEAR_PWM, 255);
+          //digitalWrite(PIN_LINEAR_DIR, !motorCfgs[Motors::LINEAR].invertDir);
+          motors[Motors::LINEAR].jogUsingPower(1, 100.0);
+          if(inputs.LinearPosLimSw){
+            motors[Motors::LINEAR].stop();
+            iSerial.debugPrintln("HOMING - LINEAR MOTOR found limit switch");
+            iSerial.resetModeTime();
+            iSerial.status.step = 25;
+          } else if (iSerial.modeTime() > 800){
+            iSerial.debugPrintln("ERROR: LINEAR MOTOR did not reach lim switch");
+            iSerial.debugPrint("LINEAR MOTOR Actual Position: ");
+            iSerial.debugPrintln(String(encoders[Motors::LINEAR].read()));
+            //iSerial.resetModeTime();
+            iSerial.status.step = 911;
+          }
+        }
+        else if (iSerial.status.step == 25){
+          
+          if(iSerial.modeTime() > 500){
+            //encoders[Motors::LINEAR].write(0);
+            iSerial.debugPrint("LINEAR MOTOR Actual Position before zero(): ");
+            iSerial.debugPrintln(String(encoders[Motors::LINEAR].read()));
+            motors[Motors::LINEAR].zero();
+            tempInt = 0;
+            iSerial.debugPrint("LINEAR MOTOR Actual Position after zero(): ");
+            iSerial.debugPrintln(String(encoders[Motors::LINEAR].read()));
+            iSerial.resetModeTime();
+            iSerial.status.step = 26;
+          }
+        }
+        else if (iSerial.status.step == 26){
+          if(iSerial.modeTime() > 10){
+            motors[Motors::LINEAR].stop();
+            iSerial.status.step = 27;
+          } else {
+            motors[Motors::LINEAR].jogUsingPower(-1, 100.0);
+          }
+        }
+        else if (iSerial.status.step == 27){
+          if(!inputs.LinearPosLimSw){
+            iSerial.status.step = 28;
+          } else if(tempInt > 7){
+            iSerial.debugPrintln("ERROR: LINEAR MOTOR did move away from lim switch");
+            iSerial.debugPrint("LINEAR MOTOR Actual Position: ");
+            iSerial.debugPrintln(String(encoders[Motors::LINEAR].read()));
+            iSerial.status.step = 911;
+          } else {
+            tempInt++;
+            iSerial.status.step = 26;
+          }
+        }
+        else if (iSerial.status.step == 28){
+          motors[Motors::LINEAR].zero();
+          iSerial.status.step = 90;
+          //iSerial.debugPrint("LINEAR MOTOR Actual Position: ");
+          //iSerial.debugPrintln(String(encoders[Motors::LINEAR].read()));
+          
+        }
+        else if (iSerial.status.step == 90){
+          runLinearMotorManualMode();
+          iSerial.debugPrint("LINEAR MOTOR Actual Position: ");
+          iSerial.debugPrintln(String(encoders[Motors::LINEAR].read()));
+        }
+        else if (iSerial.status.step == 100){
+          runToggleMotorManualMode();
+        }
+        else if (iSerial.status.step == 911){
+          //analogWrite(PIN_TOGGLE_PWM, 0);
+          motors[Motors::TOGGLE].disable();
+          motors[Motors::LINEAR].disable();
+        }
+        break;
+
+      default:
+        break;
+    }
+
+    if (iSerial.taskProcessUserInput())
+    {
+      handleSerialCmds(); // inside this command, the serialShiftReqType is assigned (if received)
+    }
+
+    int shiftTypeReq = checkForGearShiftRequests();
+    gearChangeReq = false;
+    if (shiftTypeReq > 0)
+    {
+      if (!checkShiftTypeAndHomeSw(shiftTypeReq))
       {
-        iSerial.status.step = 1;
+        iSerial.debugPrintln("WARNING: downshift request not accept accepted because of homeSw state");
       }
-
-      if (errors.present)
+      else if (iSerial.status.mode != Modes::IDLE && iSerial.status.mode != Modes::SHIFTING && iSerial.status.mode != Modes::MANUAL)
       {
-        iSerial.setNewMode(Modes::ABORTING);
+        iSerial.debugPrintln("WARNING: shift request not accpeted because motor state not idle or already shifting");
       }
-      else if (gearChangeReq)
+      else // NORMAL CASE
       {
-        iSerial.setNewMode(Modes::SHIFTING);
-      }
-
-      break;
-    case Modes::SHIFTING:
-      break;
-
-    case Modes::MANUAL:
-      if (iSerial.status.step == 0)
-      {
-        motors[Motors::TOGGLE].enable();
-        if(motors[Motors::TOGGLE].state == Motor::States::IDLE){
-          iSerial.status.step = 10;
+        gearChangeReq = processShiftReqNum(shiftTypeReq, shiftTargetGearParam);
+        if (gearChangeReq)
+        {
+          iSerial.debugPrint("shiftType: ");
+          iSerial.debugPrintln(String(shiftTypeReq));
+          sendShiftData();
+          atTarget = false;
+          atTargetAndStill = false;
+          initializeDiagnosticData();
         }
       }
-      else if (iSerial.status.step == 5){
-        motors[Motors::TOGGLE].jogUsingPower(-1, 60);
-        if (inputs.ToggleNegLimSw){
-          motors[Motors::TOGGLE].zero();
-          iSerial.resetModeTime();
-          iSerial.status.step = 10;
-        } else if (iSerial.modeTime() > 2000){
-          iSerial.status.step = -10; //error
-        }
-      }
-      else if (iSerial.status.step == 10){
-        motors[Motors::TOGGLE].jogUsingPower(1, 60);
-        if(iSerial.modeTime() > 1000 || motors[Motors::TOGGLE].actualPosition > 170.0){
-          iSerial.status.step = 20;
-        }
-      }
-      else if (iSerial.status.step == 20){
-        runToggleMotor();
-      }
-      break;
-
-    default:
-      break;
-  }
-
-  if (iSerial.taskProcessUserInput())
-  {
-    handleSerialCmds(); // inside this command, the serialShiftReqType is assigned (if received)
-  }
-
-  int shiftTypeReq = checkForGearShiftRequests();
-  gearChangeReq = false;
-  if (shiftTypeReq > 0)
-  {
-    if (!checkShiftTypeAndHomeSw(shiftTypeReq))
-    {
-      iSerial.debugPrintln("WARNING: downshift request not accept accepted because of homeSw state");
     }
-    else if (iSerial.status.mode != Modes::IDLE && iSerial.status.mode != Modes::SHIFTING)
-    {
-      iSerial.debugPrintln("WARNING: shift request not accpeted because motor state not idle or already shifting");
-    }
-    else // NORMAL CASE
-    {
-      gearChangeReq = processShiftReqNum(shiftTypeReq, shiftTargetGearParam);
-      if (gearChangeReq)
-      {
-        iSerial.debugPrint("shiftType: ");
-        iSerial.debugPrintln(String(shiftTypeReq));
-        sendShiftData();
-        atTarget = false;
-        atTargetAndStill = false;
-        initializeDiagnosticData();
-      }
-    }
+
+    //runAll(); // runs all things that have a run() method that need to be called each loop
+
+    // RESET VALUES EACH LOOP - reset values at end of each loop, like OTEs and Events
+    iSerial.event = 0;
+
+    // DEBUG PASSTHROUGHS - comment out as needed
+    // solenoids[0].setDebug(iSerial.debug);
   }
-
-  //runAll(); // runs all things that have a run() method that need to be called each loop
-
-  // RESET VALUES EACH LOOP - reset values at end of each loop, like OTEs and Events
-  iSerial.event = 0;
-
-  // DEBUG PASSTHROUGHS - comment out as needed
-  // solenoids[0].setDebug(iSerial.debug);
 }
 
 // checks the homeSw state and shiftType, prevents downshifting if homeSw detects target
 bool checkShiftTypeAndHomeSw(int shiftTypeReq)
 {
-  if (!inputs.LinearPosLimSw && (shiftTypeReq == Shifter::ShiftTypes::DOWN || shiftTypeReq == Shifter::ShiftTypes::DOWN))
+  if (inputs.LinearPosLimSw && (shiftTypeReq == Shifter::ShiftTypes::UP))
   {
     return false;
   }
@@ -521,6 +684,8 @@ void turnAllOff() // turn off all outputs
   {
     motors[i].disable();
   }
+  //digitalWrite(PIN_TOGGLE_PWM, 0);
+  //digitalWrite(PIN_LINEAR_PWM, 0);
 }
 
 bool checkShiftCompleted()
@@ -838,38 +1003,40 @@ void serializeFaultData(FaultData *msgPacket, char *data)
 }
 
 
-// USED FOR MANUAL MODE
-void runToggleMotor(){
+// USED FOR MANUAL MODE - jogs motor at 100% pwr with shift switches
+void runToggleMotorManualMode(){
     if(inputs.ShiftUpSw){
-        //analogWrite(PIN_TOGGLE_PWM, 200);
+        //analogWrite(PIN_TOGGLE_PWM, 255);
         //digitalWrite(PIN_TOGGLE_DIR, !motorCfgs[Motors::TOGGLE].invertDir);
         motors[Motors::TOGGLE].enable();
         motors[Motors::TOGGLE].jogUsingPower(1, 100);
+        //iSerial.debugPrintln("TOGGLE MOTOR jogging positive");
     } else if(inputs.ShiftDownSw){
-        //analogWrite(PIN_TOGGLE_PWM, 200);
+        //analogWrite(PIN_TOGGLE_PWM, 255);
         //digitalWrite(PIN_TOGGLE_DIR, motorCfgs[Motors::TOGGLE].invertDir);
         motors[Motors::TOGGLE].enable();
         motors[Motors::TOGGLE].jogUsingPower(-1, 100);
     } else {
-        motors[Motors::TOGGLE].stop();
+        //analogWrite(PIN_TOGGLE_PWM, 0);
+        //motors[Motors::TOGGLE].stop();
         motors[Motors::TOGGLE].disable();
     }
 }
 
-void runLinearMotor(){
+void runLinearMotorManualMode(){
     if(inputs.ShiftUpSw){
-        //analogWrite(PIN_LINEAR_PWM, 200);
+        //analogWrite(PIN_LINEAR_PWM, 255);
         //digitalWrite(PIN_LINEAR_DIR, !motorCfgs[Motors::LINEAR].invertDir);
         motors[Motors::LINEAR].enable();
         motors[Motors::LINEAR].jogUsingPower(1, 100);
     } else if(inputs.ShiftDownSw){
-        //analogWrite(PIN_LINEAR_PWM, 200);
+        //analogWrite(PIN_LINEAR_PWM, 255);
         //digitalWrite(PIN_LINEAR_DIR, motorCfgs[Motors::LINEAR].invertDir);
         motors[Motors::LINEAR].enable();
         motors[Motors::LINEAR].jogUsingPower(-1, 100);
     } else {
         //digitalWrite(PIN_LINEAR_PWM, LOW);
-        motors[Motors::LINEAR].stop();
+        //motors[Motors::LINEAR].stop();
         motors[Motors::LINEAR].disable();
     }
 }

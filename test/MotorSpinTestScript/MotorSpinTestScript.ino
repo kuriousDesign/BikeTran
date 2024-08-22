@@ -11,14 +11,14 @@
 
 // TOGLGLE MOTOR - RED: mtr+, WHITE: mtr-, BLUE: encVCC, BLACK: encGND,  YELLOW: encA, GREEN: encB,
 // when motor has positive power, it moves the motor in the engaged direction
-#define PIN_TOGGLE_DIR 4   
-#define PIN_TOGGLE_PWM 5
+#define PIN_TOGGLE_DIR 12   
+#define PIN_TOGGLE_PWM 3
 #define PIN_TOGGLE_CURRENT A0     
    
 // LINEAR MOTOR - RED: mtr+, WHITE: mtr-, BLUE: encGND, BLACK: encVCC,  YELLOW: encA, GREEN: encB,
 // when motor has positive power, it moves the motor in the down shift direction
-#define PIN_LINEAR_PWM 6
-#define PIN_LINEAR_DIR 7     
+#define PIN_LINEAR_PWM 11
+#define PIN_LINEAR_DIR 13     
 #define PIN_LINEAR_CURRENT A1    
   
 #define PIN_LINEAR_ENC_A 18   //
@@ -41,17 +41,17 @@ void setup(){
     Serial.begin(115200);
     Serial.println("Motor Spin Test Script, hold up or down shift to spin motor");
       // Initialize Timer1
-    Timer1.initialize(1000*500); // Set a period in microseconds (e.g., 1000 microseconds = 1 millisecond)
+    Timer1.initialize(500000); // Set a period in microseconds (e.g., 1000 microseconds = 1 millisecond)
     Timer1.attachInterrupt(timerISR); // Attach the timer interrupt service routine (ISR)
 }
 
 // Timer interrupt service routine (ISR)
 void timerISR() {
-  Serial.print("Analog output: ");
+  //Serial.print("Analog output: ");
   if(MOTOR_TO_TEST == 0){
-    Serial.println(analogRead(PIN_TOGGLE_CURRENT));
+    //Serial.println(analogRead(PIN_TOGGLE_CURRENT));
   } else {
-    Serial.println(analogRead(PIN_LINEAR_CURRENT));
+    //Serial.println(analogRead(PIN_LINEAR_CURRENT));
   }
 }
 
@@ -66,11 +66,13 @@ void loop(){
 
 void runToggleMotor(){
     if(digitalRead(PIN_SHIFT_UP) == LOW){
-        analogWrite(PIN_TOGGLE_PWM, 200);
+        analogWrite(PIN_TOGGLE_PWM, 255);
         digitalWrite(PIN_TOGGLE_DIR, LOW);
+        Serial.println(analogRead(PIN_TOGGLE_CURRENT));
     } else if(digitalRead(PIN_SHIFT_DOWN) == LOW){
-        analogWrite(PIN_TOGGLE_PWM, 200);
+        analogWrite(PIN_TOGGLE_PWM, 255);
         digitalWrite(PIN_TOGGLE_DIR, HIGH);
+        //Serial.println(analogRead(PIN_TOGGLE_CURRENT));
     } else {
         digitalWrite(PIN_TOGGLE_PWM, LOW);
     }
