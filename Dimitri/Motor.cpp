@@ -1,7 +1,7 @@
 #include "Motor.h"
 #include <Encoder.h>
 #include <TimerOne.h>
-
+#include <Arduino.h>
 // Constructor
 Motor::Motor(uint8_t dirPin, uint8_t speedPin, Encoder* encoder, Cfg* cfg, bool simMode)
     : _dirPin(dirPin), _speedPin(speedPin), _encoder(encoder), _cfg(cfg), _simMode(simMode) {
@@ -151,7 +151,7 @@ bool Motor::moveAbs(double position) {
     return false;
 }
 
-bool Motor::jogUsingPower(int8_t dir, double powerPercent) {
+bool Motor::jogUsingPower(double powerPercent) {
     if (_state != States::KILLED) {
         targetPower = powerPercent;
         _jogReq = true;

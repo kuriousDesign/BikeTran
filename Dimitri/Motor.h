@@ -48,7 +48,7 @@ public:
     bool setPosition(double position);
     bool enable();
     bool moveAbs(double position);
-    bool jogUsingPower(int8_t dir, double powerPercent); //dir: -1 for negative, 1 for positive
+    bool jogUsingPower(double powerPercent); //dir: -1 for negative, 1 for positive
     bool stop();
     bool disable();
     bool hold_position();
@@ -62,7 +62,7 @@ public:
     void update();
 
 private:
-    uint16_t _scanTimeUs = 1000; //TODO: update this inside the run() function
+    uint16_t _scanTimeUs = 4000; //TODO: update this inside the run() function
 
     bool _stopReq = false;
     bool _homingReq = false;

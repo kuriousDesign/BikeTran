@@ -1,6 +1,8 @@
 bool SHIFT_BUTTONS_DISABLED = false; // if this is true, the shift buttons will be disabled (ignored)
 bool START_IN_MANUAL= true;
-#define SCAN_TIME_US 1000 
+const bool SIM_MODE = false;
+
+#define SCAN_TIME_US 4000 
 
 #include "Arduino.h"
 #include "ISerial.h"
@@ -79,8 +81,8 @@ Motor::Cfg motorCfgs[NUM_MOTORS] = {
 
 
 Motor motors[NUM_MOTORS] = {
-  Motor(PIN_TOGGLE_DIR, PIN_TOGGLE_PWM, &encoders[Motors::TOGGLE], &motorCfgs[Motors::TOGGLE],true),
-  Motor(PIN_LINEAR_DIR, PIN_LINEAR_PWM, &encoders[Motors::LINEAR], &motorCfgs[Motors::LINEAR],true)
+  Motor(PIN_TOGGLE_DIR, PIN_TOGGLE_PWM, &encoders[Motors::TOGGLE], &motorCfgs[Motors::TOGGLE],SIM_MODE),
+  Motor(PIN_LINEAR_DIR, PIN_LINEAR_PWM, &encoders[Motors::LINEAR], &motorCfgs[Motors::LINEAR],SIM_MODE)
 };
 
 
@@ -149,10 +151,10 @@ void setup()
   pinMode(PIN_TOGGLE_NEG_LIM, INPUT_PULLUP);
   pinMode(PIN_SHIFT_UP, INPUT_PULLUP);
   pinMode(PIN_SHIFT_DOWN, INPUT_PULLUP);
-  //pinMode(PIN_TOGGLE_DIR, OUTPUT);
-  //pinMode(PIN_TOGGLE_PWM, OUTPUT);
-  //pinMode(PIN_LINEAR_PWM, OUTPUT);
-  //pinMode(PIN_LINEAR_DIR, OUTPUT);
+  pinMode(PIN_TOGGLE_DIR, OUTPUT);
+  pinMode(PIN_TOGGLE_PWM, OUTPUT);
+  pinMode(PIN_LINEAR_PWM, OUTPUT);
+  pinMode(PIN_LINEAR_DIR, OUTPUT);
 
   // encoder.setDebug(true);
   motors[Motors::TOGGLE].setDebug(true);
@@ -297,17 +299,17 @@ void loop()
         {
           motors[Motors::TOGGLE].enable();
           if(motors[Motors::TOGGLE].getState() == Motor::States::IDLE){
-            iSerial.debugPrintln("HOMING - Moving toggle motor to Disengaged Position");
+            iSerial.debugPrintln("HOMING - Moving toggle motor to Engaged Position");
             iSerial.resetModeTime();
             iSerial.status.step = 5;
           }
         }
         else if (iSerial.status.step == 5){
-          motors[Motors::TOGGLE].jogUsingPower(-1, 60);
+          motors[Motors::TOGGLE].jogUsingPower(-100.0);
           //digitalWrite(PIN_TOGGLE_DIR, motorCfgs[Motors::TOGGLE].invertDir);
           //analogWrite(PIN_TOGGLE_PWM, 255);
 
-          if (inputs.ToggleNegLimSw || iSerial.modeTime() > 700){ 
+          if (inputs.ToggleNegLimSw || iSerial.modeTime() > 1500){ 
             //motors[Motors::TOGGLE].zero();
             //analogWrite(PIN_TOGGLE_PWM, 0);
             motors[Motors::TOGGLE].stop();
@@ -322,8 +324,7 @@ void loop()
         else if (iSerial.status.step == 6){
           
           if(iSerial.modeTime() > 1000){
-            //analogWrite(PIN_TOGGLE_PWM, 0);
-            //encoders[Motors::TOGGLE].write(0);
+
             iSerial.debugPrint("TOGGLE MOTOR Actual Position Before zero(): ");
             iSerial.debugPrintln(String(encoders[Motors::TOGGLE].read()));
             motors[Motors::TOGGLE].zero();
@@ -337,9 +338,7 @@ void loop()
           }
         }
         else if (iSerial.status.step == 10){
-          motors[Motors::TOGGLE].jogUsingPower(1, 100.0);
-          //digitalWrite(PIN_TOGGLE_DIR, !motorCfgs[Motors::TOGGLE].invertDir);
-          //analogWrite(PIN_TOGGLE_PWM, 255);
+          motors[Motors::TOGGLE].jogUsingPower(100.0);
           if(encoders[Motors::TOGGLE].read() > 700){
             iSerial.resetModeTime();
             iSerial.status.step = 20;
@@ -361,10 +360,7 @@ void loop()
           }
         }
         else if (iSerial.status.step == 21){
-
-          //analogWrite(PIN_LINEAR_PWM, 255);
-          //digitalWrite(PIN_LINEAR_DIR, !motorCfgs[Motors::LINEAR].invertDir);
-          motors[Motors::LINEAR].jogUsingPower(1, 100.0);
+          motors[Motors::LINEAR].jogUsingPower(100.0);
           if(inputs.LinearPosLimSw){
             motors[Motors::LINEAR].stop();
             iSerial.debugPrintln("HOMING - LINEAR MOTOR found limit switch");
@@ -393,23 +389,24 @@ void loop()
           }
         }
         else if (iSerial.status.step == 26){
-          if(iSerial.modeTime() > 10){
+          if(iSerial.modeTime() > 35){
             motors[Motors::LINEAR].stop();
             iSerial.status.step = 27;
           } else {
-            motors[Motors::LINEAR].jogUsingPower(-1, 100.0);
+            motors[Motors::LINEAR].jogUsingPower(-100.0);
           }
         }
         else if (iSerial.status.step == 27){
           if(!inputs.LinearPosLimSw){
             iSerial.status.step = 28;
           } else if(tempInt > 7){
-            iSerial.debugPrintln("ERROR: LINEAR MOTOR did move away from lim switch");
+            iSerial.debugPrintln("ERROR: LINEAR MOTOR exceeded move count");
             iSerial.debugPrint("LINEAR MOTOR Actual Position: ");
             iSerial.debugPrintln(String(encoders[Motors::LINEAR].read()));
             iSerial.status.step = 911;
           } else {
             tempInt++;
+            iSerial.resetModeTime();
             iSerial.status.step = 26;
           }
         }
@@ -1009,13 +1006,13 @@ void runToggleMotorManualMode(){
         //analogWrite(PIN_TOGGLE_PWM, 255);
         //digitalWrite(PIN_TOGGLE_DIR, !motorCfgs[Motors::TOGGLE].invertDir);
         motors[Motors::TOGGLE].enable();
-        motors[Motors::TOGGLE].jogUsingPower(1, 100);
+        motors[Motors::TOGGLE].jogUsingPower(100);
         //iSerial.debugPrintln("TOGGLE MOTOR jogging positive");
     } else if(inputs.ShiftDownSw){
         //analogWrite(PIN_TOGGLE_PWM, 255);
         //digitalWrite(PIN_TOGGLE_DIR, motorCfgs[Motors::TOGGLE].invertDir);
         motors[Motors::TOGGLE].enable();
-        motors[Motors::TOGGLE].jogUsingPower(-1, 100);
+        motors[Motors::TOGGLE].jogUsingPower(-100);
     } else {
         //analogWrite(PIN_TOGGLE_PWM, 0);
         //motors[Motors::TOGGLE].stop();
@@ -1028,12 +1025,12 @@ void runLinearMotorManualMode(){
         //analogWrite(PIN_LINEAR_PWM, 255);
         //digitalWrite(PIN_LINEAR_DIR, !motorCfgs[Motors::LINEAR].invertDir);
         motors[Motors::LINEAR].enable();
-        motors[Motors::LINEAR].jogUsingPower(1, 100);
+        motors[Motors::LINEAR].jogUsingPower(100);
     } else if(inputs.ShiftDownSw){
         //analogWrite(PIN_LINEAR_PWM, 255);
         //digitalWrite(PIN_LINEAR_DIR, motorCfgs[Motors::LINEAR].invertDir);
         motors[Motors::LINEAR].enable();
-        motors[Motors::LINEAR].jogUsingPower(-1, 100);
+        motors[Motors::LINEAR].jogUsingPower(-100);
     } else {
         //digitalWrite(PIN_LINEAR_PWM, LOW);
         //motors[Motors::LINEAR].stop();
