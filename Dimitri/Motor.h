@@ -5,6 +5,8 @@
 #include <Encoder.h>
 #include <TimerOne.h>
 
+#define NUM_FILTER_POINTS 11
+
 class Motor {
 public:
     struct Cfg {
@@ -20,6 +22,10 @@ public:
         bool invertDir;
         double positionTol; //units
         double zeroVelocityTol; //units
+        double kP; //proportional gain for PID, units
+        double kD; //derivative gain for PID, units
+        uint16_t nudgeTimeMs; //ms
+        double nudgePower; //%
     };
     Motor(uint8_t dirPin, uint8_t speedPin, Encoder* encoder, Cfg* cfg, bool simMode = false);
 
@@ -59,7 +65,8 @@ public:
     double error;
     void setDebug(bool state);
     String stateToString(); //current state to string
-    void update();
+    void update(); //used to udpate motor velocities, should be 1000Hz or better
+    void run(); //used to run the state machine
 
 private:
     uint16_t _scanTimeUs = 4000; //TODO: update this inside the run() function
@@ -79,20 +86,26 @@ private:
     bool _simMode = false;
     bool _debug = false;
     double _outputPower; //between -100.0 and 100.0
-    double _kp = 1.0; //proportional gain TODO: move these to the config struct
-    double _kd = 0.0; //derivative gain: TODO: move these to the config struct
     double _countsPerUnit = 1.0;
 
-    void run();
+    bool _isStill = false;
+    bool _atPosition = false;
+    bool _isNudging = false;
+    unsigned long _nudgeStartTime = 0;
+    bool _nudgingStarted = false;
+
     double pdControl();
+
+    void setOutputs();
 
     Cfg* _cfg;
     uint8_t _dirPin;
     uint8_t _speedPin;
     Encoder* _encoder;
     int16_t _step;
-    double lastPositions[3];
-    unsigned long lastTimes[3];
+    
+    double lastPositions[NUM_FILTER_POINTS];
+    unsigned long lastTimes[NUM_FILTER_POINTS];
 
     void debugPrint(String msg);
     void debugPrintln(String msg);

@@ -2,7 +2,8 @@ bool SHIFT_BUTTONS_DISABLED = false; // if this is true, the shift buttons will 
 bool START_IN_MANUAL= true;
 const bool SIM_MODE = false;
 
-#define SCAN_TIME_US 4000 
+#define SCAN_TIME_US 5000  //how frequently the loop updates
+#define UPDATE_TIME_US 1000 //time that the motor velocities are updated
 
 #include "Arduino.h"
 #include "ISerial.h"
@@ -10,6 +11,7 @@ const bool SIM_MODE = false;
 #include "Shifter.h"
 #include "CustomDataTypes.h"
 #include "Motor.h"
+#include "TimerOne.h"
 
 
 ////////////////////////////////////////////////////
@@ -75,8 +77,10 @@ Encoder encoders[NUM_MOTORS] = {
 };
 
 Motor::Cfg motorCfgs[NUM_MOTORS] = {
-  {"toggle",-1, 2, "deg", 900.0, 1000.0, 180.0, 0.0, true, 5.0, 5.0}, // TOGGLE name, homeDir, homeType, unit, pulsesPerUnit, maxVelocity, softLimitPositive, softLimitNegative, invertDir, positionTol, zeroVelocityTol
-  {"linear",1, 2, "gear", 767.0, 20.0, 12.0, 1.0, true, 0.05, 0.1} // LINEAR
+  //name, homeDir, homeType, unit, pulsesPerUnit, maxVelocity, softLimitPositive, softLimitNegative, invertDir, positionTol, zeroVelocityTol, kP, kD, nudgeTimeMs
+
+  {"toggle",-1, 2, "deg", 900.0, 1000.0, 180.0, 0.0, true, 5.0, 5.0, 1.0, 0.0, 0, 100.0}, // TOGGLE name, homeDir, homeType, unit, pulsesPerUnit, maxVelocity, softLimitPositive, softLimitNegative, invertDir, positionTol, zeroVelocityTol, kP, kD
+  {"linear",1, 2, "gear", 767.0, 20.0, 12.0, 1.0, true, 0.015, 0.1, 500.0, 15.0, 15, 100.0} // LINEAR
 };
 
 
@@ -141,7 +145,7 @@ void setup()
   iSerial.init();
   iSerial.THIS_DEVICE_ID = BIKE_MEGA_ID;
   iSerial.setAutoSendStatus(false); // status updates sent when mode changes
-  iSerial.debug = true;
+  iSerial.debug = false;
 
   iSerial.setNewMode(Modes::ABORTING);
   
@@ -156,11 +160,14 @@ void setup()
   pinMode(PIN_LINEAR_PWM, OUTPUT);
   pinMode(PIN_LINEAR_DIR, OUTPUT);
 
-  // encoder.setDebug(true);
-  motors[Motors::TOGGLE].setDebug(true);
-  motors[Motors::LINEAR].setDebug(true);
+  //motors[Motors::TOGGLE].setDebug(true);
+  motors[Motors::LINEAR].setDebug(false);
 
   lastUpdateUs = micros();
+
+  Timer1.initialize(UPDATE_TIME_US); // Initialize timer to trigger every 1000 microseconds
+  Timer1.attachInterrupt(updateMotors);
+
 }
 
 // int deleteMe = 0;
@@ -180,9 +187,17 @@ void loop()
       iSerial.debugPrintln("WARNING: long scan time detected: " + String(timeNowUs - lastUpdateUs) + "usec");
     }
     lastUpdateUs = timeNowUs;
+
+    //used for plotting velocity
+    if(true){
+      Serial.print(motors[Motors::LINEAR].actualPosition);
+      Serial.print(", ");
+      Serial.println(String(motors[Motors::LINEAR].atPosition));
+    }
+
     for (int i = 0; i < NUM_MOTORS; i++)
     {
-      motors[i].update();
+      motors[i].run();
     }
     readInputs();
     timeNow = millis();
@@ -190,7 +205,6 @@ void loop()
     if (timeNow - lastDisplayed_ms >= 500)
     {
       lastDisplayed_ms = timeNow;
-      
       
       //iSerial.debugPrint("toggle motor encoder pulses:");
       //iSerial.debugPrintln(String(motors[Motors::TOGGLE].actualEncoderPulses));
@@ -366,8 +380,8 @@ void loop()
             iSerial.debugPrintln("HOMING - LINEAR MOTOR found limit switch");
             iSerial.resetModeTime();
             iSerial.status.step = 25;
-          } else if (iSerial.modeTime() > 800){
-            iSerial.debugPrintln("ERROR: LINEAR MOTOR did not reach lim switch");
+          } else if (iSerial.modeTime() > 1500){
+            iSerial.debugPrintln("ERROR: LINEAR MOTOR timed out while trying to reach limit switch");
             iSerial.debugPrint("LINEAR MOTOR Actual Position: ");
             iSerial.debugPrintln(String(encoders[Motors::LINEAR].read()));
             //iSerial.resetModeTime();
@@ -389,7 +403,7 @@ void loop()
           }
         }
         else if (iSerial.status.step == 26){
-          if(iSerial.modeTime() > 35){
+          if(iSerial.modeTime() > 25){
             motors[Motors::LINEAR].stop();
             iSerial.status.step = 27;
           } else {
@@ -412,15 +426,35 @@ void loop()
         }
         else if (iSerial.status.step == 28){
           motors[Motors::LINEAR].zero();
-          iSerial.status.step = 90;
+          iSerial.status.step = 30;
           //iSerial.debugPrint("LINEAR MOTOR Actual Position: ");
           //iSerial.debugPrintln(String(encoders[Motors::LINEAR].read()));
           
         }
+        else if (iSerial.status.step == 30){
+          //analogWrite(PIN_TOGGLE_PWM, 0);
+          motors[Motors::LINEAR].moveAbs(-0.03);
+          if(motors[Motors::LINEAR].getState() != Motor::States::IDLE){
+            iSerial.debugPrintln("HOMING - Moving linear motor to -0.05");
+            iSerial.resetModeTime();
+            iSerial.status.step = 31;
+          }
+    
+        }
+        else if (iSerial.status.step == 31){
+          if(motors[Motors::LINEAR].getState() == Motor::States::IDLE){
+            iSerial.debugPrintln("HOMING - setting linear motor position to be 12");
+            motors[Motors::LINEAR].setPosition(12.0);
+            iSerial.resetModeTime();
+            iSerial.status.step = 90;
+          }
+        }
         else if (iSerial.status.step == 90){
+          //iSerial.debugPrint("Linear Motor isStill: ");
+          //iSerial.debugPrintln(String(motors[Motors::LINEAR].isStill));
           runLinearMotorManualMode();
           iSerial.debugPrint("LINEAR MOTOR Actual Position: ");
-          iSerial.debugPrintln(String(encoders[Motors::LINEAR].read()));
+          iSerial.debugPrintln(String(motors[Motors::LINEAR].actualPosition));
         }
         else if (iSerial.status.step == 100){
           runToggleMotorManualMode();
@@ -1021,19 +1055,30 @@ void runToggleMotorManualMode(){
 }
 
 void runLinearMotorManualMode(){
+    
     if(inputs.ShiftUpSw){
         //analogWrite(PIN_LINEAR_PWM, 255);
         //digitalWrite(PIN_LINEAR_DIR, !motorCfgs[Motors::LINEAR].invertDir);
         motors[Motors::LINEAR].enable();
-        motors[Motors::LINEAR].jogUsingPower(100);
+        //motors[Motors::LINEAR].jogUsingPower(100);
+        motors[Motors::LINEAR].moveAbs(11.0);
     } else if(inputs.ShiftDownSw){
         //analogWrite(PIN_LINEAR_PWM, 255);
         //digitalWrite(PIN_LINEAR_DIR, motorCfgs[Motors::LINEAR].invertDir);
         motors[Motors::LINEAR].enable();
-        motors[Motors::LINEAR].jogUsingPower(-100);
+        //motors[Motors::LINEAR].jogUsingPower(-100);
+        motors[Motors::LINEAR].moveAbs(6.0);
     } else {
         //digitalWrite(PIN_LINEAR_PWM, LOW);
         //motors[Motors::LINEAR].stop();
-        motors[Motors::LINEAR].disable();
+        //motors[Motors::LINEAR].disable();
     }
+}
+
+void updateMotors()
+{
+  for (int i = 0; i < NUM_MOTORS; i++)
+  {
+    motors[i].update();
+  }
 }

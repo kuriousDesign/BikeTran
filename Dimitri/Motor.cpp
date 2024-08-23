@@ -25,6 +25,10 @@ void Motor::run() {
         _firstScan = false;
     }
 
+        // Update these properties that are set by the update function
+    isStill = _isStill;
+    atPosition = _atPosition;
+
     switch (_state) {
         case States::KILLED:
             isEnabled = false;
@@ -78,27 +82,7 @@ void Motor::run() {
             break;
     }
 
-    if (_outputPower > 0.0) {
-        digitalWrite(_dirPin, !_cfg->invertDir);
-    }
-    else if (_outputPower < 0.0) {
-        digitalWrite(_dirPin, _cfg->invertDir);
-    }
-    else {
-        digitalWrite(_dirPin, false);
-    }
-
-    if (_outputPower < -100.0) {
-        _outputPower = -100.0;
-    } else if (_outputPower > 100.0) {
-        _outputPower = 100.0;
-    }
-    uint8_t speed = abs(round(_outputPower * 255.0 / 100.0));
-    if (_outputPower != 0.0 && false) {
-        debugPrint("Speed: ");
-        debugPrintln(String(speed));
-    }
-    analogWrite(_speedPin, speed);
+    setOutputs();
 
     // Update the encoder position if in simulation mode
     if(_simMode) {
@@ -129,6 +113,29 @@ void Motor::run() {
     _disableReq = false;
 }
 
+void Motor::setOutputs(){
+    if (_outputPower > 0.0) {
+        digitalWrite(_dirPin, !_cfg->invertDir);
+    }
+    else if (_outputPower < 0.0) {
+        digitalWrite(_dirPin, _cfg->invertDir);
+    }
+    else {
+        digitalWrite(_dirPin, false);
+    }
+
+    if (_outputPower < -100.0) {
+        _outputPower = -100.0;
+    } else if (_outputPower > 100.0) {
+        _outputPower = 100.0;
+    }
+    uint8_t speed = abs(round(_outputPower * 255.0 / 100.0));
+    if (_outputPower != 0.0 && false) {
+        debugPrint("Speed: ");
+        debugPrintln(String(speed));
+    }
+    analogWrite(_speedPin, speed);
+}
 
 
 bool Motor::zero() {
@@ -205,49 +212,80 @@ double Motor::pdControl() {
     // Calculate the error (position error)
     error = targetPosition - actualPosition;
     // Calculate the speed control parameter (output)
-    double speedControl = _kp * error - _kd * actualVelocity;
+
+    double speedControl = _cfg->kP * error - _cfg->kD * actualVelocity;
     // Constrain the speed control parameter between -100% and 100%
     if (speedControl > 100.0) {
         speedControl = 100.0;
     } else if (speedControl < -100.0) {
         speedControl = -100.0;
     }
+
+    // check nudging
+    _isNudging = false;
+    if(_isStill && !_atPosition && _cfg->nudgeTimeMs > 0) {
+        if(!_nudgingStarted ) {
+            _nudgeStartTime = millis();
+            _nudgingStarted = true;
+        } 
+
+        if (millis() - _nudgeStartTime < _cfg->nudgeTimeMs) {
+            _isNudging = true;
+            speedControl = error/abs(error) * _cfg->nudgePower;
+        }  
+    }
+    else {
+        _isNudging = false;
+        _nudgingStarted = false;
+    }
     return speedControl;
 }
 
+
 void Motor::update() {
     unsigned long currentTime = micros();
-    //read the encoder and scale to units
+    
+    // Read the encoder and scale to units
     actualEncoderPulses = _encoder->read();
-    actualPosition = double(actualEncoderPulses)/_cfg->pulsesPerUnit;
-    lastPositions[2] = lastPositions[1];
-    lastPositions[1] = lastPositions[0];
-    lastPositions[0] = actualPosition;
+    actualPosition = double(actualEncoderPulses) / _cfg->pulsesPerUnit;
 
-    lastTimes[2] = lastTimes[1];
-    lastTimes[1] = lastTimes[0];
+    // Shift position and time history arrays to make space for the new entry
+    memmove(&lastPositions[1], &lastPositions[0], (NUM_FILTER_POINTS - 1) * sizeof(double));
+    memmove(&lastTimes[1], &lastTimes[0], (NUM_FILTER_POINTS - 1) * sizeof(unsigned long));
+    lastPositions[0] = actualPosition;
     lastTimes[0] = currentTime;
 
-    // Check if the motor is at the target position
-    atPosition = true;
-    for (int i = 0; i < 3; i++) {
-        if (abs(lastPositions[i] - targetPosition) > _cfg->positionTol) {
-            atPosition = false;
-        }
+    // Initialize status flags
+    _atPosition = true;
+    _isStill = true;
+
+    // Calculate velocity over the most recent interval
+    double deltaPosition = lastPositions[0] - lastPositions[1];
+    double deltaTime = double(lastTimes[0] - lastTimes[1]) / 1.0e6; // Convert to seconds
+    double velocity = deltaPosition / deltaTime;
+
+
+    if (abs(velocity) > _cfg->zeroVelocityTol) {
+        _isStill = false;
     }
-    isStill = true;
-    if (abs(actualVelocity) > _cfg->zeroVelocityTol) {
-        atPosition = false;
-        isStill = false;
+        // Check if the motor is at the target position and if it is still
+    if (abs(lastPositions[0] - targetPosition) > _cfg->positionTol || !_isStill) {
+        _atPosition = false;
     }
 
-    if (lastTimes[2] != 0) {
-        double deltaPosition = lastPositions[0] - lastPositions[2];
-        double deltaTime = double(lastTimes[0] - lastTimes[2]) / 1.0e6; // Convert to seconds
+    // Calculate the overall velocity considering all history points
+    if (lastTimes[NUM_FILTER_POINTS - 1] != 0) {
+        deltaPosition = lastPositions[0] - lastPositions[NUM_FILTER_POINTS - 1];
+        deltaTime = double(lastTimes[0] - lastTimes[NUM_FILTER_POINTS - 1]) / 1.0e6; // Convert to seconds
         actualVelocity = deltaPosition / deltaTime;
     }
-    run();
+
+    if (_state == States::MOVING) {
+        _outputPower = pdControl();
+        setOutputs();
+    }
 }
+
 
 int16_t Motor::getState() {
     return _state;
