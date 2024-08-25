@@ -38,17 +38,17 @@ enum InfoTypes : uint8_t
 struct MotionData
 {
     int8_t actualGear = 1; // range is from 1 to NUM_GEARS, does not start at 0
-    float actualPosition = 0.0;
-    float actualVelocity = 0.0; // Initialize the stored position
-    float targetPosition = 0.0;
+    //float actualPosition = 0.0;
+    //float actualVelocity = 0.0; // Initialize the stored position
+    //float targetPosition = 0.0;
 };
 
 #define SHIFTDATAPACKETSIZE 5 // 5 bytes
 struct ShiftData
 {
     int8_t targetGear = 1; // range is from 1 to NUM_GEARS, does not start at 0
-    int16_t targetPosition = 0;
-    int16_t startingPosition = 0;
+    //int16_t targetPosition = 0;
+    //int16_t startingPosition = 0;
 };
 
 #define NUM_DIAGNOSTICS_ARRAY 900
@@ -78,6 +78,8 @@ enum Errors : uint8_t //
     CONTROLLER_FAULT_DURING_HOMING = 2,
     HOMING_NUDGE_RETRIES_EXCEEDED = 3,
     ENCODER_MISREAD_COUNT_EXCEEDED = 4,
+    MOTOR_NOT_AT_TARGET_WHILE_IDLE = 5,
+    HOMING_ROUTINE_ERROR = 50, //reserved 51- 59 for homing errors
 
 };
 

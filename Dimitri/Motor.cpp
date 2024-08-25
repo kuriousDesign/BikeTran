@@ -43,17 +43,28 @@ void Motor::run() {
 
             isEnabled = true;
             _outputPower = 0.0;
+  
 
             if (_moveAbsReq) {
+                _nudgingStarted = false;
                 _nextState = States::MOVING;
             } else if (_jogReq) {
+                _nudgingStarted = false;
                 _nextState = States::JOGGING;
             } else if (_holdReq) {
                 _nextState = States::HOLD_POSITION;
             }
             break;
         case States::JOGGING:
-            _outputPower = targetPower;
+            checkIsNudging(true);
+            if(_isNudging) {
+                _outputPower = targetPower / abs(targetPower) * _cfg->nudgePower;
+            } else {
+                _outputPower = targetPower;
+            }
+
+            //TODO: add sticky input to check if motor is stalled using isStill and checking prev and current encoder counts
+
             if (_stopReq) {
                 _nextState = States::STOPPING;
             } 
@@ -71,6 +82,7 @@ void Motor::run() {
         case States::HOLD_POSITION:
             break;
         case States::STOPPING:
+            targetPower = 0.0;
             _outputPower = 0.0; //TODO: add deceleration based on cfg params and current velocity
             if (isStill) {
                 targetPosition = actualPosition;
@@ -221,9 +233,23 @@ double Motor::pdControl() {
         speedControl = -100.0;
     }
 
+
+
+    checkIsNudging();
+    // Modify speed control if nudging
+    if (_isNudging) {
+        //debugPrintln("Nudging");
+        speedControl = error/abs(error) * _cfg->nudgePower;
+    }
+
+    return speedControl;
+}
+
+// this will set the _isNudging flag
+void Motor::checkIsNudging(bool isJogging = false) {
     // check nudging
     _isNudging = false;
-    if(_isStill && !_atPosition && _cfg->nudgeTimeMs > 0) {
+    if(_isStill && (!_atPosition || isJogging) && _cfg->nudgeTimeMs > 0) {
         if(!_nudgingStarted ) {
             _nudgeStartTime = millis();
             _nudgingStarted = true;
@@ -231,14 +257,13 @@ double Motor::pdControl() {
 
         if (millis() - _nudgeStartTime < _cfg->nudgeTimeMs) {
             _isNudging = true;
-            speedControl = error/abs(error) * _cfg->nudgePower;
         }  
     }
     else {
         _isNudging = false;
         _nudgingStarted = false;
     }
-    return speedControl;
+
 }
 
 
@@ -326,4 +351,8 @@ String Motor::stateToString() {
         default:
             return String(_state);
     }
+}
+
+double Motor::getOutputPower() {
+    return _outputPower;
 }

@@ -31,8 +31,8 @@ public:
 
     bool isHomed = false;
     bool isEnabled = false;
-    bool atPosition;
-    bool isStill;
+    bool atPosition; //motor position is near target position and is still
+    bool isStill; //motor velocity is near zero
     double actualPosition;
     int32_t actualEncoderPulses;
     double actualVelocity;
@@ -49,6 +49,7 @@ public:
         STOPPING = 5
     };
     int16_t getState();
+    double getOutputPower();
     
     bool zero();
     bool setPosition(double position);
@@ -94,6 +95,7 @@ private:
     unsigned long _nudgeStartTime = 0;
     bool _nudgingStarted = false;
 
+    void checkIsNudging(bool isJogging = false);
     double pdControl();
 
     void setOutputs();
