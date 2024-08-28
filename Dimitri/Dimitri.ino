@@ -170,11 +170,11 @@ void setup()
   //motors[Motors::TOGGLE].setDebug(true);
   motors[Motors::LINEAR].setDebug(false);
 
+  shiftData.targetGear = 0;
   lastUpdateUs = micros();
 
   Timer1.initialize(UPDATE_TIME_US); // Initialize timer to trigger every 1000 microseconds
   Timer1.attachInterrupt(updateMotors);
-
 }
 
 // int deleteMe = 0;

@@ -149,7 +149,6 @@ void Motor::setOutputs(){
     analogWrite(_speedPin, speed);
 }
 
-
 bool Motor::zero() {
     _encoder->write(0);
     return true;
