@@ -84,14 +84,14 @@ Encoder encoders[NUM_MOTORS] = {
 //#define MAX_POSITION (MIN_POSITION + float(NUM_GEARS - 1) * COUNTS_PER_GEAR)
 
 const double TOGGLE_PULSES_PER_UNIT = 780.0/180.0;
-const double LINEAR_PULSES_PER_UNIT = (9200.0 - 500.0) / (double(NUM_GEARS) - 1.0); // 9200 is the max position, 488 is the min position
+const double LINEAR_PULSES_PER_UNIT = 8800.0 / (double(NUM_GEARS) - 1.0); // 9200 is the max position, 488 is the min position
 
 
 Motor::Cfg motorCfgs[NUM_MOTORS] = {
   //name, homeDir, homeType, unit, pulsesPerUnit, maxVelocity, softLimitPositive, softLimitNegative, invertDir, positionTol, zeroVelocityTol, kP, kD, nudgeTimeMs, nudgePower
 
-  {"toggle",-1, 2, "deg", TOGGLE_PULSES_PER_UNIT, 1000.0, 180.0, 0.0, true, 5.0, 5.0, 10.0, 0.0, 0, 100.0}, // TOGGLE name, homeDir, homeType, unit, pulsesPerUnit, maxVelocity, softLimitPositive, softLimitNegative, invertDir, positionTol, zeroVelocityTol, kP, kD
-  {"linear",1, 2, "gear", LINEAR_PULSES_PER_UNIT, 20.0, 12.0, 1.0, true, 0.02, 0.05, 500.0, 15.0, 15, 100.0} // LINEAR
+  {"toggle",-1, 2, "deg", TOGGLE_PULSES_PER_UNIT, 1000.0, 180.0, 0.0, true, 5.0, 5.0, 10.0, 1.0, 0, 100.0}, // TOGGLE name, homeDir, homeType, unit, pulsesPerUnit, maxVelocity, softLimitPositive, softLimitNegative, invertDir, positionTol, zeroVelocityTol, kP, kD
+  {"linear",1, 2, "gear", LINEAR_PULSES_PER_UNIT, 20.0, 12.0, 1.0, true, 0.02, 0.05, 500.0, 25.0, 15, 100.0} // LINEAR
 };
 
 
@@ -163,7 +163,7 @@ void setup()
   pinMode(PIN_LINEAR_PWM, OUTPUT);
   pinMode(PIN_LINEAR_DIR, OUTPUT);
   for(int i = 0; i < NUM_BITS; i++){
-    pinMode(PIN_EINK_BIT0 + i, OUTPUT);
+    pinMode(PIN_EINK_BIT0 + 2*i, OUTPUT);
   }
 
 
@@ -192,31 +192,45 @@ void loop()
   if (timeNowUs - lastUpdateUs > SCAN_TIME_US)
   {
     if(timeNowUs - lastUpdateUs > 1.10*SCAN_TIME_US){
-      iSerial.debugPrintln("WARNING: long scan time detected: " + String(timeNowUs - lastUpdateUs) + "usec");
+      //iSerial.debugPrintln("WARNING: long scan time detected: " + String(timeNowUs - lastUpdateUs) + "usec");
     }
     lastUpdateUs = timeNowUs;
 
     //used for plotting velocity
     if(true){
+      
       Serial.print(iSerial.status.mode);
       Serial.print(", ");
       Serial.print(iSerial.status.step);
       Serial.print(", ");
+      Serial.print(errors.list[0]);
+      /*
       Serial.print(shiftData.targetGear);
       Serial.print(", ");
-      Serial.print(motionData.actualGear);
+      Serial.println(motionData.actualGear);
+      */
       Serial.print(", TOGGLE: ");
+      
       Serial.print(motors[Motors::TOGGLE].getState());
       Serial.print(", ");
+      
+      
       Serial.print(motors[Motors::TOGGLE].actualPosition);
+      //Serial.print(", ");
+      /*
+      Serial.println(motors[Motors::TOGGLE].actualVelocity);
+      //Serial.print(", ");
+      //Serial.println(100*int(motors[Motors::TOGGLE].isStill));
+      */
       Serial.print(", LINEAR: ");
       Serial.print(motors[Motors::LINEAR].getState());
       Serial.print(", ");
-      Serial.print(motors[Motors::LINEAR].actualPosition);
-      Serial.print(", ");
+      Serial.println(motors[Motors::LINEAR].actualPosition);
+      //Serial.print(", ");
       //Serial.print(motors[Motors::LINEAR].actualVelocity);
       //Serial.print(", ");
-      Serial.println(String(motors[Motors::LINEAR].getOutputPower()));
+      //Serial.println(String(motors[Motors::LINEAR].getOutputPower()));
+      
     }
 
     for (int i = 0; i < NUM_MOTORS; i++)
@@ -242,7 +256,7 @@ void loop()
     }
 
     //AUTO ABORT IF ERROR
-    if (errors.present && iSerial.status.mode >= Modes::RESETTING)
+    if (errors.present && iSerial.status.mode >= int(Modes::RESETTING))
     {
       iSerial.setNewMode(Modes::ABORTING);
     }
@@ -267,6 +281,8 @@ void loop()
 
         break;
       case Modes::ERROR:
+        shiftData.targetGear = 0;
+        isHomed = false;
         if (iSerial.status.step == 0)
         {
           turnAllOff();
@@ -282,6 +298,11 @@ void loop()
           if (!errors.present)
           {
             iSerial.setNewMode(Modes::INACTIVE);
+          }
+          if(iSerial.modeTime() > 3000 && false){
+            Serial.print("ERROR: ");
+            Serial.println(errors.list[0]);
+            iSerial.resetModeTime();
           }
         }
 
@@ -318,6 +339,7 @@ void loop()
         }
 
         break;
+      
 
       case Modes::IDLE:
         if (iSerial.status.step == 0)
@@ -342,14 +364,18 @@ void loop()
           motors[Motors::TOGGLE].moveAbs(180.0);
           if (motors[Motors::TOGGLE].getState() != Motor::States::IDLE)
           {
+            iSerial.resetModeTime();
             iSerial.status.step = 2;
           }
         }
         else if (iSerial.status.step == 2)
         {
-          if (motors[Motors::TOGGLE].getState() == Motor::States::IDLE)
+          if (motors[Motors::TOGGLE].getState() == Motor::States::IDLE || motors[Motors::TOGGLE].actualPosition > 110.0)
           {
             iSerial.status.step = 10;
+          }
+          else if(iSerial.modeTime() > 3000){
+            triggerError(Errors::TOGGLE_MOTOR_DISENGAGE_MOVE_TIMED_OUT);
           }
         }
         else if (iSerial.status.step == 10)
@@ -357,6 +383,7 @@ void loop()
           motors[Motors::LINEAR].moveAbs(shiftData.targetGear);
           if (motors[Motors::LINEAR].getState() != Motor::States::IDLE)
           {
+            iSerial.resetModeTime();
             iSerial.status.step = 11;
           }
         }
@@ -365,9 +392,19 @@ void loop()
           if(gearChangeReq){
             iSerial.status.step = 10;
           }
-          else if (motors[Motors::LINEAR].getState() == Motor::States::IDLE)
+          else if ((motors[Motors::LINEAR].getState() == Motor::States::IDLE && motors[Motors::TOGGLE].getState() == Motor::States::IDLE) || atTarget)
           {
             iSerial.status.step = 20;
+          }
+          else if(iSerial.modeTime() > 3000){
+            if (motors[Motors::LINEAR].getState() != Motor::States::IDLE){
+              triggerError(Errors::LINEAR_SHIFT_MOVE_TIMED_OUT);
+            }
+            if(motors[Motors::TOGGLE].getState() != Motor::States::IDLE){
+              triggerError(Errors::TOGGLE_MOTOR_DISENGAGE_MOVE_TIMED_OUT);
+            }
+          } else{
+            Serial.println(String(iSerial.modeTime()));
           }
         }
         else if (iSerial.status.step == 20)
@@ -375,6 +412,7 @@ void loop()
           motors[Motors::TOGGLE].moveAbs(0.0);
           if (motors[Motors::TOGGLE].getState() != Motor::States::IDLE)
           {
+            iSerial.resetModeTime();
             iSerial.status.step = 21;
           }
         }
@@ -389,13 +427,16 @@ void loop()
             //iSerial.status.step = 10;
             iSerial.setNewMode(Modes::IDLE);
           }
+          else if (iSerial.modeTime() > 4000){
+            triggerError(Errors::TOGGLE_MOTOR_ENGAGE_MOVE_TIMED_OUT);
+          }
         }
         else if (iSerial.status.step == 29)
         {
           motors[Motors::TOGGLE].stop();
           if (motors[Motors::TOGGLE].getState() == Motor::States::IDLE)
           {
-            iSerial.status.step = 10;
+            iSerial.status.step = 1;
           }
         }
         break;
@@ -1069,7 +1110,7 @@ void runHomingRoutine(){
     }else if (iSerial.modeTime() > 2000){
       iSerial.debugPrintln("TOGGLE MOTOR Error While Moving to Disengaged Position");
       iSerial.debugPrint("TOGGLE MOTOR Actual Position: ");
-      iSerial.debugPrintln(String(encoders[Motors::TOGGLE].read()));
+      iSerial.debugPrintln(String(motors[Motors::TOGGLE].actualPosition));
       iSerial.status.step = 911; //error
     }
   }
@@ -1138,7 +1179,7 @@ void runHomingRoutine(){
   }
   else if (iSerial.status.step == 30){
     //analogWrite(PIN_TOGGLE_PWM, 0);
-    motors[Motors::LINEAR].moveAbs(-0.20);
+    motors[Motors::LINEAR].moveAbs(-0.12);
     if(motors[Motors::LINEAR].getState() != Motor::States::IDLE){
       iSerial.debugPrintln("HOMING - Moving linear motor to 12th gear");
       iSerial.resetModeTime();
@@ -1148,6 +1189,12 @@ void runHomingRoutine(){
   }
   else if (iSerial.status.step == 31){
     if(motors[Motors::LINEAR].getState() == Motor::States::IDLE){
+      iSerial.resetModeTime();
+      iSerial.status.step = 32;
+    }
+  }
+  else if (iSerial.status.step == 32){
+    if(iSerial.modeTime() > 2000){
       iSerial.debugPrintln("HOMING - setting linear motor position to be 12");
       motors[Motors::LINEAR].setPosition(12.0);
       shiftData.targetGear = 12;
@@ -1167,8 +1214,24 @@ void runHomingRoutine(){
   }
   else if (iSerial.status.step == 41){
     if(motors[Motors::LINEAR].getState() == Motor::States::IDLE && atTarget){
-      iSerial.debugPrintln("HOMING - done!");
+      
       iSerial.resetModeTime();
+      iSerial.status.step = 50;
+    }
+  }
+  else if (iSerial.status.step == 50)
+  {
+    motors[Motors::TOGGLE].moveAbs(0.0);
+    if (motors[Motors::TOGGLE].getState() != Motor::States::IDLE)
+    {
+      iSerial.status.step = 51;
+    }
+  }
+  else if (iSerial.status.step == 51)
+  {
+    if (motors[Motors::TOGGLE].getState() == Motor::States::IDLE)
+    {
+      iSerial.debugPrintln("HOMING - done!");
       iSerial.status.step = 1000;
     }
   }
@@ -1186,7 +1249,8 @@ void runHomingRoutine(){
 //sets the actual gear based on the actual position of the linear motor and atTarget flag
 void checkActualGear(){
   atTarget = false;
-  if(motors[Motors::LINEAR].atPosition){
+  bool atWiderTarget = abs(motors[Motors::LINEAR].actualPosition - shiftData.targetGear) < 2.0 * motorCfgs[Motors::LINEAR].positionTol;
+  if(motors[Motors::LINEAR].atPosition || atWiderTarget){
     motionData.actualGear = round(motors[Motors::LINEAR].actualPosition);
     if(shiftData.targetGear == motionData.actualGear){
       atTarget = true;

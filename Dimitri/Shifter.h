@@ -15,8 +15,8 @@ public:
           si_up_super(StickyInput(pin_up, 1000, true, true)),
           si_down_super(StickyInput(pin_down, 1000, true, true))
     {
-        pinMode(PIN_UP_SHIFT, INPUT_PULLUP);
-        pinMode(PIN_DOWN_SHIFT, INPUT_PULLUP);
+        //pinMode(PIN_UP_SHIFT, INPUT_PULLUP);
+        //pinMode(PIN_DOWN_SHIFT, INPUT_PULLUP);
         // Serial.print("pin_up");
         // Serial.println(PIN_UP_SHIFT);
     }
@@ -39,6 +39,12 @@ public:
     // checks the states of the shifter sticky inputs and returns the shift type
     int checkShiftReq()
     {
+        /*
+        Serial.print("up shift sw: ");
+        Serial.println(!digitalRead(PIN_UP_SHIFT));
+        Serial.print("down shift sw: ");
+        Serial.println(!digitalRead(PIN_DOWN_SHIFT));
+        */
         int shiftNum = ShiftTypes::NONE;
 
         if (si_down_super.read())

@@ -67,6 +67,7 @@ public:
     void setDebug(bool state);
     String stateToString(); //current state to string
     void update(); //used to udpate motor velocities, should be 1000Hz or better
+    void updateNew();
     void run(); //used to run the state machine
 
 private:
@@ -106,8 +107,23 @@ private:
     Encoder* _encoder;
     int16_t _step;
     
+    uint8_t _indexFilter = 0;
+    uint8_t _prevIndexFilter = NUM_FILTER_POINTS - 1;
+    //double lastPositions[NUM_FILTER_POINTS];
     double lastPositions[NUM_FILTER_POINTS];
+    double lastDeltaPositions[NUM_FILTER_POINTS];
+    double sumDeltaPositions = 0.0;
+    double lastVelocities[NUM_FILTER_POINTS];
+    double lastErrors[NUM_FILTER_POINTS];
+    double sumVelocities = 0.0;
+    double sumSpeeds = 0.0; //used to detect isStill
+    double sumErrors = 0.0;
     unsigned long lastTimes[NUM_FILTER_POINTS];
+    unsigned long lastDeltaTimes[NUM_FILTER_POINTS];
+    unsigned long sumTimes = 0;
+    double _prevTargetPosition = -1.0;
+    double _prevPosition = 0.0;
+    int32_t _prevEncoderPulses = 0;
 
     void debugPrint(String msg);
     void debugPrintln(String msg);
