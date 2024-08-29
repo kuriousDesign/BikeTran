@@ -84,7 +84,7 @@ Encoder encoders[NUM_MOTORS] = {
 //#define MAX_POSITION (MIN_POSITION + float(NUM_GEARS - 1) * COUNTS_PER_GEAR)
 
 const double TOGGLE_PULSES_PER_UNIT = 780.0/180.0;
-const double LINEAR_PULSES_PER_UNIT = 8800.0 / (double(NUM_GEARS) - 1.0); // 9200 is the max position, 488 is the min position
+const double LINEAR_PULSES_PER_UNIT = 8600.0 / (double(NUM_GEARS) - 1.0); // 9200 is the max position, 488 is the min position
 
 
 Motor::Cfg motorCfgs[NUM_MOTORS] = {
@@ -339,7 +339,6 @@ void loop()
         }
 
         break;
-      
 
       case Modes::IDLE:
         if (iSerial.status.step == 0)
@@ -381,7 +380,7 @@ void loop()
         else if (iSerial.status.step == 10)
         {
           motors[Motors::LINEAR].moveAbs(shiftData.targetGear);
-          if (motors[Motors::LINEAR].getState() != Motor::States::IDLE)
+          if (motors[Motors::LINEAR].getState() == Motor::States::MOVING)
           {
             iSerial.resetModeTime();
             iSerial.status.step = 11;
@@ -392,7 +391,7 @@ void loop()
           if(gearChangeReq){
             iSerial.status.step = 10;
           }
-          else if ((motors[Motors::LINEAR].getState() == Motor::States::IDLE && motors[Motors::TOGGLE].getState() == Motor::States::IDLE) || atTarget)
+          else if (atTarget)
           {
             iSerial.status.step = 20;
           }
@@ -403,9 +402,7 @@ void loop()
             if(motors[Motors::TOGGLE].getState() != Motor::States::IDLE){
               triggerError(Errors::TOGGLE_MOTOR_DISENGAGE_MOVE_TIMED_OUT);
             }
-          } else{
-            Serial.println(String(iSerial.modeTime()));
-          }
+          } 
         }
         else if (iSerial.status.step == 20)
         {
