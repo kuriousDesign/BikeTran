@@ -90,7 +90,7 @@ const double LINEAR_PULSES_PER_UNIT = 8600.0 / (double(NUM_GEARS) - 1.0); // 920
 Motor::Cfg motorCfgs[NUM_MOTORS] = {
   //name, homeDir, homeType, unit, pulsesPerUnit, maxVelocity, softLimitPositive, softLimitNegative, invertDir, positionTol, zeroVelocityTol, kP, kD, nudgeTimeMs, nudgePower
 
-  {"toggle",-1, 2, "deg", TOGGLE_PULSES_PER_UNIT, 1000.0, 180.0, 0.0, true, 5.0, 5.0, 10.0, 1.0, 0, 100.0}, // TOGGLE name, homeDir, homeType, unit, pulsesPerUnit, maxVelocity, softLimitPositive, softLimitNegative, invertDir, positionTol, zeroVelocityTol, kP, kD
+  {"toggle",-1, 2, "deg", TOGGLE_PULSES_PER_UNIT, 1000.0, 180.0, 0.0, false, 5.0, 5.0, 10.0, 1.0, 0, 100.0}, // TOGGLE name, homeDir, homeType, unit, pulsesPerUnit, maxVelocity, softLimitPositive, softLimitNegative, invertDir, positionTol, zeroVelocityTol, kP, kD
   {"linear",1, 2, "gear", LINEAR_PULSES_PER_UNIT, 20.0, 12.0, 1.0, true, 0.02, 0.05, 500.0, 25.0, 15, 100.0} // LINEAR
 };
 
