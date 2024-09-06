@@ -270,6 +270,7 @@ void Motor::checkIsNudging(bool isJogging = false) {
 
 }
 
+/*
 void Motor::updateNew() {
     unsigned long currentTime = micros();
     
@@ -313,7 +314,7 @@ void Motor::updateNew() {
         setOutputs();
     }
 }
-
+*/
 
 void Motor::update() {
     unsigned long currentTime = micros();
@@ -329,9 +330,9 @@ void Motor::update() {
     }
 
 
-    
     // Read the encoder and scale to units
-    actualEncoderPulses = _encoder->read();
+    int32_t dir = _cfg->invertDir ? -1 : 1;
+    actualEncoderPulses = _encoder->read() * dir;
     actualPosition = double(actualEncoderPulses) / _cfg->pulsesPerUnit;
     double dPosition = actualPosition - lastPositions[_indexFilter];
     lastPositions[_indexFilter] = actualPosition;

@@ -1,7 +1,17 @@
 //CONFIG
-const bool AUTO_RESET = true; // if this is true, the system will automatically reset after when inactive
+
+enum OperatingModes
+{
+  AUTO = 0,
+  MANUAL_TOGGLE = 1,
+  MANUAL_LINEAR = 2,
+};
+
+const double HOME_OFFSET = 0.12; // distance (measured in gears) to move away from positive limit switch in order to be in 12th gear
+const OperatingModes OPERATING_MODE = OperatingModes::AUTO; // set to AUTO_DEBUG to run the system in debug mode
+
+const bool AUTO_RESET = true; // if this is true, the system will automatically reset when inactive (no errors)
 const bool SHIFT_BUTTONS_DISABLED = false; // if this is true, the shift buttons will be disabled (ignored)
-const bool MANUAL_MODE= false; //set to true to enable manual mode
 const bool SIM_MODE = false; //set to true to simulate motor behavior (encoders positions for now, TODO: simulate lim switches)
 
 #define SCAN_TIME_US 5000  //how frequently the loop updates
@@ -309,7 +319,7 @@ void loop()
         break;
       case Modes::INACTIVE:
         turnAllOff();
-        if (MANUAL_MODE)
+        if (OPERATING_MODE == OperatingModes::MANUAL_TOGGLE || OPERATING_MODE == OperatingModes::MANUAL_LINEAR)
         {
           iSerial.setNewMode(Modes::MANUAL);
         }
@@ -1069,7 +1079,7 @@ void runHomingRoutine(){
     //digitalWrite(PIN_TOGGLE_DIR, motorCfgs[Motors::TOGGLE].invertDir);
     //analogWrite(PIN_TOGGLE_PWM, 255);
 
-    if (inputs.ToggleNegLimSw || iSerial.modeTime() > 1500){ 
+    if (iSerial.modeTime() > 1500){ //ignoring neg lim sw for now
       //motors[Motors::TOGGLE].zero();
       //analogWrite(PIN_TOGGLE_PWM, 0);
       motors[Motors::TOGGLE].stop();
@@ -1176,7 +1186,7 @@ void runHomingRoutine(){
   }
   else if (iSerial.status.step == 30){
     //analogWrite(PIN_TOGGLE_PWM, 0);
-    motors[Motors::LINEAR].moveAbs(-0.12);
+    motors[Motors::LINEAR].moveAbs(-HOME_OFFSET);
     if(motors[Motors::LINEAR].getState() != Motor::States::IDLE){
       iSerial.debugPrintln("HOMING - Moving linear motor to 12th gear");
       iSerial.resetModeTime();

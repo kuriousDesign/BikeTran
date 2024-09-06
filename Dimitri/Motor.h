@@ -67,7 +67,7 @@ public:
     void setDebug(bool state);
     String stateToString(); //current state to string
     void update(); //used to udpate motor velocities, should be 1000Hz or better
-    void updateNew();
+    //void updateNew();
     void run(); //used to run the state machine
 
 private:
