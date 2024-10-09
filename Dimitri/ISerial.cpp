@@ -277,6 +277,7 @@ unsigned char *ISerial::longToByteArray(long &longInt)
   return byteArray;
 }
 
+//returns the buffer in the string
 String ISerial::getDataString()
 {
   String dataStr = "";
