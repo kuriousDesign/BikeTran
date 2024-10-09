@@ -3,9 +3,12 @@
 enum OperatingModes
 {
   AUTO = 0,
-  MANUAL_TOGGLE = 1,
+  MANUAL_CLUTCH = 1,
   MANUAL_LINEAR = 2,
 };
+
+const unsigned long TIME_CLUTCH_DISENGAGE = 1000; //ms, time to wait after clutch disengages before linear motor moves
+const unsigned long TIME_CLUTCH_ENGAGE = 1300;    //ms, time to wait after clutch motor moves from disengaged to engaged using spring
 
 const double HOME_OFFSET = 0.12; // distance (measured in gears) to move away from positive limit switch in order to be in 12th gear
 const OperatingModes OPERATING_MODE = OperatingModes::AUTO; // set to AUTO_DEBUG to run the system in debug mode
@@ -32,9 +35,9 @@ const bool SIM_MODE = false; //set to true to simulate motor behavior (encoders 
 
 // TOGLGLE MOTOR - RED: mtr+, WHITE: mtr-, BLUE: encVCC, BLACK: encGND,  YELLOW: encA, GREEN: encB,
 // when motor has positive power, it moves the motor in the engaged direction
-#define PIN_TOGGLE_DIR 12   
-#define PIN_TOGGLE_PWM 3
-#define PIN_TOGGLE_CURRENT A0     
+#define PIN_CLUTCH_DIR 12   
+#define PIN_CLUTCH_PWM 3
+#define PIN_CLUTCH_CURRENT A0     
    
 // LINEAR MOTOR - RED: mtr+, WHITE: mtr-, BLUE: encGND, BLACK: encVCC,  YELLOW: encA, GREEN: encB,
 // when motor has positive power, it moves the motor in the down shift direction
@@ -44,12 +47,12 @@ const bool SIM_MODE = false; //set to true to simulate motor behavior (encoders 
   
 #define PIN_LINEAR_ENC_A 18   //
 #define PIN_LINEAR_ENC_B 19   //
-#define PIN_TOGGLE_ENC_A 20   //
-#define PIN_TOGGLE_ENC_B 21   //
+#define PIN_CLUTCH_ENC_A 20   //
+#define PIN_CLUTCH_ENC_B 21   //
 #define PIN_EINK_BIT0 22      // NOTE THAT PINS 22, 24, 26, & 28 ARE USED AS OUTPUTS FOR GEAR NUMBER DISPLAY ON E-INK
 #define NUM_BITS 4
 #define PIN_LINEAR_POS_LIM 41 
-#define PIN_TOGGLE_NEG_LIM 43          
+#define PIN_CLUTCH_NEG_LIM 43          
 #define PIN_SHIFT_UP 51       // ORANGE WIRE ON SHIFTER
 #define PIN_SHIFT_DOWN 53     // RED WIRE ON SHIFTER
 
@@ -78,13 +81,13 @@ Outputs outputs;
 #define NUM_MOTORS 2
 
 enum Motors {
-  TOGGLE=0,
-  LINEAR=1,
+  LINEAR=0,
+  CLUTCH=1,
 };
 
 // ENCODERS
 Encoder encoders[NUM_MOTORS] = {
-  Encoder(PIN_TOGGLE_ENC_A, PIN_TOGGLE_ENC_B),
+  Encoder(PIN_CLUTCH_ENC_A, PIN_CLUTCH_ENC_B),
   Encoder(PIN_LINEAR_ENC_A, PIN_LINEAR_ENC_B) //14PPR Of the motor and gear ratio of 1:50 and 1/2 rev per index, but empiracally found 767 counts per index
 };
 
@@ -93,20 +96,19 @@ Encoder encoders[NUM_MOTORS] = {
 //#define COUNTS_PER_GEAR 750.0
 //#define MAX_POSITION (MIN_POSITION + float(NUM_GEARS - 1) * COUNTS_PER_GEAR)
 
-const double TOGGLE_PULSES_PER_UNIT = 780.0/180.0;
+const double CLUTCH_PULSES_PER_UNIT = 780.0/180.0;
 const double LINEAR_PULSES_PER_UNIT = 8600.0 / (double(NUM_GEARS) - 1.0); // 9200 is the max position, 488 is the min position
 
 
 Motor::Cfg motorCfgs[NUM_MOTORS] = {
   //name, homeDir, homeType, unit, pulsesPerUnit, maxVelocity, softLimitPositive, softLimitNegative, invertDir, positionTol, zeroVelocityTol, kP, kD, nudgeTimeMs, nudgePower
-
-  {"toggle",-1, 2, "deg", TOGGLE_PULSES_PER_UNIT, 1000.0, 180.0, 0.0, false, 5.0, 5.0, 10.0, 1.0, 0, 100.0}, // TOGGLE name, homeDir, homeType, unit, pulsesPerUnit, maxVelocity, softLimitPositive, softLimitNegative, invertDir, positionTol, zeroVelocityTol, kP, kD
+  {"clutch",-1, 2, "deg", CLUTCH_PULSES_PER_UNIT, 1000.0, 180.0, 0.0, false, 5.0, 5.0, 10.0, 1.0, 0, 100.0}, // CLUTCH name, homeDir, homeType, unit, pulsesPerUnit, maxVelocity, softLimitPositive, softLimitNegative, invertDir, positionTol, zeroVelocityTol, kP, kD
   {"linear",1, 2, "gear", LINEAR_PULSES_PER_UNIT, 20.0, 12.0, 1.0, true, 0.02, 0.05, 500.0, 25.0, 15, 100.0} // LINEAR
 };
 
 
 Motor motors[NUM_MOTORS] = {
-  Motor(PIN_TOGGLE_DIR, PIN_TOGGLE_PWM, &encoders[Motors::TOGGLE], &motorCfgs[Motors::TOGGLE],SIM_MODE),
+  Motor(PIN_CLUTCH_DIR, PIN_CLUTCH_PWM, &encoders[Motors::CLUTCH], &motorCfgs[Motors::CLUTCH],SIM_MODE),
   Motor(PIN_LINEAR_DIR, PIN_LINEAR_PWM, &encoders[Motors::LINEAR], &motorCfgs[Motors::LINEAR],SIM_MODE)
 };
 
@@ -162,14 +164,14 @@ void setup()
 
   iSerial.setNewMode(Modes::ABORTING);
   
-  pinMode(PIN_TOGGLE_CURRENT, INPUT);
+  pinMode(PIN_CLUTCH_CURRENT, INPUT);
   pinMode(PIN_LINEAR_CURRENT, INPUT);
   pinMode(PIN_LINEAR_POS_LIM, INPUT_PULLUP);
-  pinMode(PIN_TOGGLE_NEG_LIM, INPUT_PULLUP);
+  pinMode(PIN_CLUTCH_NEG_LIM, INPUT_PULLUP);
   pinMode(PIN_SHIFT_UP, INPUT_PULLUP);
   pinMode(PIN_SHIFT_DOWN, INPUT_PULLUP);
-  pinMode(PIN_TOGGLE_DIR, OUTPUT);
-  pinMode(PIN_TOGGLE_PWM, OUTPUT);
+  pinMode(PIN_CLUTCH_DIR, OUTPUT);
+  pinMode(PIN_CLUTCH_PWM, OUTPUT);
   pinMode(PIN_LINEAR_PWM, OUTPUT);
   pinMode(PIN_LINEAR_DIR, OUTPUT);
   for(int i = 0; i < NUM_BITS; i++){
@@ -177,7 +179,7 @@ void setup()
   }
 
 
-  //motors[Motors::TOGGLE].setDebug(true);
+  //motors[Motors::CLUTCH].setDebug(true);
   motors[Motors::LINEAR].setDebug(false);
 
   shiftData.targetGear = 0;
@@ -219,18 +221,15 @@ void loop()
       Serial.print(", ");
       Serial.println(motionData.actualGear);
       */
-      Serial.print(", TOGGLE: ");
-      
-      Serial.print(motors[Motors::TOGGLE].getState());
-      Serial.print(", ");
-      
-      
-      Serial.print(motors[Motors::TOGGLE].actualPosition);
+      Serial.print(", CLUTCH: ");
+      Serial.print(motors[Motors::CLUTCH].getState());
+      //Serial.print(", ");
+      //Serial.print(motors[Motors::CLUTCH].actualPosition);
       //Serial.print(", ");
       /*
-      Serial.println(motors[Motors::TOGGLE].actualVelocity);
+      Serial.println(motors[Motors::CLUTCH].actualVelocity);
       //Serial.print(", ");
-      //Serial.println(100*int(motors[Motors::TOGGLE].isStill));
+      //Serial.println(100*int(motors[Motors::CLUTCH].isStill));
       */
       Serial.print(", LINEAR: ");
       Serial.print(motors[Motors::LINEAR].getState());
@@ -255,8 +254,8 @@ void loop()
       lastDisplayed_ms = timeNow;
       if (false)
       {
-        iSerial.debugPrint("TOGGLE MOTOR Actual Position: ");
-        iSerial.debugPrintln(String(encoders[Motors::TOGGLE].read()));
+        //iSerial.debugPrint("CLUTCH MOTOR Actual Position: ");
+        //iSerial.debugPrintln(String(encoders[Motors::CLUTCH].read()));
       }
 
       if (errors.present)
@@ -319,7 +318,7 @@ void loop()
         break;
       case Modes::INACTIVE:
         turnAllOff();
-        if (OPERATING_MODE == OperatingModes::MANUAL_TOGGLE || OPERATING_MODE == OperatingModes::MANUAL_LINEAR)
+        if (OPERATING_MODE == OperatingModes::MANUAL_CLUTCH || OPERATING_MODE == OperatingModes::MANUAL_LINEAR)
         {
           iSerial.setNewMode(Modes::MANUAL);
         }
@@ -343,7 +342,7 @@ void loop()
           }
         }
         else if (iSerial.status.step == 1000 && atTarget){
-          motors[Motors::TOGGLE].enable();
+          motors[Motors::CLUTCH].enable();
           motors[Motors::LINEAR].enable();
           iSerial.setNewMode(Modes::IDLE);
         }
@@ -366,24 +365,18 @@ void loop()
       case Modes::SHIFTING:
         if (iSerial.status.step == 0)
         {
-          iSerial.status.step = 1;
+          iSerial.resetModeTime();
+          iSerial.status.step = 2;
         }
-        else if (iSerial.status.step == 1)
+        else if (iSerial.status.step == 2) //MOVE CLUTCH TO DISENGAGED POSITION
         {
-          motors[Motors::TOGGLE].moveAbs(180.0);
-          if (motors[Motors::TOGGLE].getState() != Motor::States::IDLE)
-          {
-            iSerial.resetModeTime();
-            iSerial.status.step = 2;
-          }
-        }
-        else if (iSerial.status.step == 2)
-        {
-          if (motors[Motors::TOGGLE].getState() == Motor::States::IDLE || motors[Motors::TOGGLE].actualPosition > 110.0)
+          motors[Motors::CLUTCH].jogUsingPower(100.0);
+          if (iSerial.modeTime() > TIME_CLUTCH_DISENGAGE)
           {
             iSerial.status.step = 10;
           }
-          else if(iSerial.modeTime() > 3000){
+          else if(iSerial.modeTime() > 3000)
+          {
             triggerError(Errors::TOGGLE_MOTOR_DISENGAGE_MOVE_TIMED_OUT);
           }
         }
@@ -403,54 +396,42 @@ void loop()
           }
           else if (atTarget)
           {
+            iSerial.resetModeTime();
             iSerial.status.step = 20;
           }
           else if(iSerial.modeTime() > 3000){
             if (motors[Motors::LINEAR].getState() != Motor::States::IDLE){
               triggerError(Errors::LINEAR_SHIFT_MOVE_TIMED_OUT);
             }
-            if(motors[Motors::TOGGLE].getState() != Motor::States::IDLE){
-              triggerError(Errors::TOGGLE_MOTOR_DISENGAGE_MOVE_TIMED_OUT);
-            }
           } 
         }
-        else if (iSerial.status.step == 20)
+        else if (iSerial.status.step == 20) //ALLOW CLUTCH TO SPRING RETURN TO ENGAGED POSITION
         {
-          motors[Motors::TOGGLE].moveAbs(0.0);
-          if (motors[Motors::TOGGLE].getState() != Motor::States::IDLE)
-          {
-            iSerial.resetModeTime();
-            iSerial.status.step = 21;
-          }
+          motors[Motors::CLUTCH].stop();
+          iSerial.resetModeTime();
+          iSerial.status.step = 21;
+          
         }
         else if (iSerial.status.step == 21)
         {
           if (gearChangeReq)
           {
-            iSerial.status.step = 29;
+            iSerial.status.step = 2;
           }
-          else if (motors[Motors::TOGGLE].getState() == Motor::States::IDLE && atTarget)
+          else if (iSerial.modeTime() > TIME_CLUTCH_ENGAGE && atTarget)
           {
-            //iSerial.status.step = 10;
             iSerial.setNewMode(Modes::IDLE);
           }
-          else if (iSerial.modeTime() > 4000){
-            triggerError(Errors::TOGGLE_MOTOR_ENGAGE_MOVE_TIMED_OUT);
-          }
-        }
-        else if (iSerial.status.step == 29)
-        {
-          motors[Motors::TOGGLE].stop();
-          if (motors[Motors::TOGGLE].getState() == Motor::States::IDLE)
+          else if (iSerial.modeTime() > 4000)
           {
-            iSerial.status.step = 1;
+            triggerError(Errors::TOGGLE_MOTOR_ENGAGE_MOVE_TIMED_OUT);
           }
         }
         break;
 
       case Modes::MANUAL:
         if (iSerial.status.step == 0){
-          runToggleMotorManualMode();
+          runClutchMotorManualMode();
         }
         else if (iSerial.status.step == 1){
           runLinearMotorManualMode();
@@ -703,7 +684,7 @@ void turnAllOff() // turn off all outputs
   {
     motors[i].disable();
   }
-  //digitalWrite(PIN_TOGGLE_PWM, 0);
+  //digitalWrite(PIN_CLUTCH_PWM, 0);
   //digitalWrite(PIN_LINEAR_PWM, 0);
 }
 
@@ -713,7 +694,7 @@ void readInputs()
 {
   inputs.ShiftUpSw = !digitalRead(PIN_SHIFT_UP);
   inputs.ShiftDownSw = !digitalRead(PIN_SHIFT_DOWN);
-  inputs.ToggleNegLimSw = !digitalRead(PIN_TOGGLE_NEG_LIM);
+  inputs.ToggleNegLimSw = !digitalRead(PIN_CLUTCH_NEG_LIM);
   inputs.LinearPosLimSw = !digitalRead(PIN_LINEAR_POS_LIM);
 }
 
@@ -1016,22 +997,22 @@ void serializeFaultData(FaultData *msgPacket, char *data)
 
 
 // USED FOR MANUAL MODE - jogs motor at 100% pwr with shift switches
-void runToggleMotorManualMode(){
+void runClutchMotorManualMode(){
     if(inputs.ShiftUpSw){
-        //analogWrite(PIN_TOGGLE_PWM, 255);
-        //digitalWrite(PIN_TOGGLE_DIR, !motorCfgs[Motors::TOGGLE].invertDir);
-        motors[Motors::TOGGLE].enable();
-        motors[Motors::TOGGLE].jogUsingPower(100);
-        //iSerial.debugPrintln("TOGGLE MOTOR jogging positive");
+        //analogWrite(PIN_CLUTCH_PWM, 255);
+        //digitalWrite(PIN_CLUTCH_DIR, !motorCfgs[Motors::CLUTCH].invertDir);
+        motors[Motors::CLUTCH].enable();
+        motors[Motors::CLUTCH].jogUsingPower(100);
+        //iSerial.debugPrintln("CLUTCH MOTOR jogging positive");
     } else if(inputs.ShiftDownSw){
-        //analogWrite(PIN_TOGGLE_PWM, 255);
-        //digitalWrite(PIN_TOGGLE_DIR, motorCfgs[Motors::TOGGLE].invertDir);
-        motors[Motors::TOGGLE].enable();
-        motors[Motors::TOGGLE].jogUsingPower(-100);
+        //analogWrite(PIN_CLUTCH_PWM, 255);
+        //digitalWrite(PIN_CLUTCH_DIR, motorCfgs[Motors::CLUTCH].invertDir);
+        //motors[Motors::CLUTCH].enable();
+        //motors[Motors::CLUTCH].jogUsingPower(-100);
     } else {
-        //analogWrite(PIN_TOGGLE_PWM, 0);
-        //motors[Motors::TOGGLE].stop();
-        motors[Motors::TOGGLE].disable();
+        //analogWrite(PIN_CLUTCH_PWM, 0);
+        //motors[Motors::CLUTCH].stop();
+        motors[Motors::CLUTCH].disable();
     }
 }
 
@@ -1067,71 +1048,51 @@ void updateMotors()
 void runHomingRoutine(){
   if (iSerial.status.step == 0)
   {
-    motors[Motors::TOGGLE].enable();
-    if(motors[Motors::TOGGLE].getState() == Motor::States::IDLE){
-      iSerial.debugPrintln("HOMING - Moving toggle motor to Engaged Position");
+    motors[Motors::CLUTCH].enable();
+    if(motors[Motors::CLUTCH].getState() == Motor::States::IDLE){
+      iSerial.debugPrintln("HOMING - Moving clutch motor to Engaged Position");
       iSerial.resetModeTime();
       iSerial.status.step = 5;
     }
   }
-  else if (iSerial.status.step == 5){
-    motors[Motors::TOGGLE].jogUsingPower(-100.0);
-    //digitalWrite(PIN_TOGGLE_DIR, motorCfgs[Motors::TOGGLE].invertDir);
-    //analogWrite(PIN_TOGGLE_PWM, 255);
-
-    if (iSerial.modeTime() > 1500){ //ignoring neg lim sw for now
-      //motors[Motors::TOGGLE].zero();
-      //analogWrite(PIN_TOGGLE_PWM, 0);
-      motors[Motors::TOGGLE].stop();
+  else if (iSerial.status.step == 5) //STARTING POSITION - could check the ClutchNegLimSw
+  {
+    motors[Motors::CLUTCH].stop();
+    if (iSerial.modeTime() > 0)
+    { 
       iSerial.resetModeTime();
-      iSerial.debugPrintln("HOMING - Moving toggle motor to Disengaged Position");
-      iSerial.status.step = 6;
+      iSerial.debugPrintln("HOMING - Moving clutch motor to Disengaged Position");
+      iSerial.status.step = 10;
     } else if (iSerial.modeTime() > 2000){
       iSerial.debugPrintln("HOMING - Error finding Toggle Neg Lim Sw");
       iSerial.status.step = 911; //error
     }
   }
-  else if (iSerial.status.step == 6){
-    
-    if(iSerial.modeTime() > 1000){
-
-      iSerial.debugPrint("TOGGLE MOTOR Actual Position Before zero(): ");
-      iSerial.debugPrintln(String(encoders[Motors::TOGGLE].read()));
-      motors[Motors::TOGGLE].zero();
-      iSerial.debugPrint("TOGGLE MOTOR Actual Position After zero(): ");
-      iSerial.debugPrintln(String(encoders[Motors::TOGGLE].read()));
-      iSerial.resetModeTime();
-      motors[Motors::TOGGLE].moveAbs(180.0);
-      iSerial.status.step = 10;
-    }
-    else if (iSerial.modeTime() > 200){
-      motors[Motors::TOGGLE].stop();
-    }
-  }
-  else if (iSerial.status.step == 10){
-    //motors[Motors::TOGGLE].jogUsingPower(100.0);
-    
-    if(motors[Motors::TOGGLE].actualPosition > 175.0 && motors[Motors::TOGGLE].atPosition){
+  else if (iSerial.status.step == 10) //MOVING CLUTCH TO DISENGAGED POSITION
+  {
+    motors[Motors::CLUTCH].jogUsingPower(100.0);
+    if(iSerial.modeTime() > TIME_CLUTCH_DISENGAGE)
+    {
       iSerial.resetModeTime();
       iSerial.status.step = 20;
     }else if (iSerial.modeTime() > 2000){
-      iSerial.debugPrintln("TOGGLE MOTOR Error While Moving to Disengaged Position");
-      iSerial.debugPrint("TOGGLE MOTOR Actual Position: ");
-      iSerial.debugPrintln(String(motors[Motors::TOGGLE].actualPosition));
+      iSerial.debugPrintln("CLUTCH MOTOR Error While Moving to Disengaged Position");
+      iSerial.debugPrint("CLUTCH MOTOR Actual Position: ");
+      iSerial.debugPrintln(String(motors[Motors::CLUTCH].actualPosition));
       iSerial.status.step = 911; //error
     }
   }
-  else if (iSerial.status.step == 20){
-    //analogWrite(PIN_TOGGLE_PWM, 0);
-    motors[Motors::TOGGLE].stop();
+  else if (iSerial.status.step == 20) //ENABLE LINEAR MOTOR
+  {
     motors[Motors::LINEAR].enable();
-    if(motors[Motors::LINEAR].getState() == Motor::States::IDLE && motors[Motors::TOGGLE].getState() == Motor::States::IDLE){
+    if(motors[Motors::LINEAR].getState() == Motor::States::IDLE && motors[Motors::CLUTCH].getState() == Motor::States::IDLE){
       iSerial.debugPrintln("HOMING - Moving linear motor to positive lim sw");
       iSerial.resetModeTime();
       iSerial.status.step = 21;
     }
   }
-  else if (iSerial.status.step == 21){
+  else if (iSerial.status.step == 21) //MOVING LINEAR TO POSITIVE LIMIT SWITCH
+  {
     motors[Motors::LINEAR].jogUsingPower(100.0);
     if(inputs.LinearPosLimSw){
       motors[Motors::LINEAR].stop();
@@ -1185,7 +1146,7 @@ void runHomingRoutine(){
     
   }
   else if (iSerial.status.step == 30){
-    //analogWrite(PIN_TOGGLE_PWM, 0);
+    //analogWrite(PIN_CLUTCH_PWM, 0);
     motors[Motors::LINEAR].moveAbs(-HOME_OFFSET);
     if(motors[Motors::LINEAR].getState() != Motor::States::IDLE){
       iSerial.debugPrintln("HOMING - Moving linear motor to 12th gear");
@@ -1209,7 +1170,8 @@ void runHomingRoutine(){
       iSerial.status.step = 40;
     }
   }
-  else if (iSerial.status.step == 40){
+  else if (iSerial.status.step == 40) //MOVING LINEAR TO 1ST GEAR
+  {
     motors[Motors::LINEAR].moveAbs(1.0);
     shiftData.targetGear = 1;
     if(motors[Motors::LINEAR].getState() != Motor::States::IDLE){
@@ -1217,26 +1179,18 @@ void runHomingRoutine(){
       iSerial.resetModeTime();
       iSerial.status.step = 41;
     }
-
   }
-  else if (iSerial.status.step == 41){
+  else if (iSerial.status.step == 41)
+  {
     if(motors[Motors::LINEAR].getState() == Motor::States::IDLE && atTarget){
-      
       iSerial.resetModeTime();
       iSerial.status.step = 50;
     }
   }
   else if (iSerial.status.step == 50)
   {
-    motors[Motors::TOGGLE].moveAbs(0.0);
-    if (motors[Motors::TOGGLE].getState() != Motor::States::IDLE)
-    {
-      iSerial.status.step = 51;
-    }
-  }
-  else if (iSerial.status.step == 51)
-  {
-    if (motors[Motors::TOGGLE].getState() == Motor::States::IDLE)
+    motors[Motors::CLUTCH].stop();
+    if (iSerial.modeTime() > 1000)
     {
       iSerial.debugPrintln("HOMING - done!");
       iSerial.status.step = 1000;
@@ -1247,8 +1201,8 @@ void runHomingRoutine(){
     isHomed = true;
   }
   else if (iSerial.status.step == 911){
-    //analogWrite(PIN_TOGGLE_PWM, 0);
-    motors[Motors::TOGGLE].disable();
+    //analogWrite(PIN_CLUTCH_PWM, 0);
+    motors[Motors::CLUTCH].disable();
     motors[Motors::LINEAR].disable();
   }
 }
