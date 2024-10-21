@@ -8,6 +8,7 @@ enum OperatingModes
 };
 
 const unsigned long TIME_CLUTCH_DISENGAGE = 1000; //ms, time to wait after clutch disengages before linear motor moves
+const unsigned long TIME_CLUTCH_IMPULSE_TO_ENGAGE=100; //ms, time to move clutch motor from disengaged to engaged using impulse
 const unsigned long TIME_CLUTCH_ENGAGE = 1300;    //ms, time to wait after clutch motor moves from disengaged to engaged using spring
 
 const double HOME_OFFSET = 0.12; // distance (measured in gears) to move away from positive limit switch in order to be in 12th gear
@@ -405,14 +406,22 @@ void loop()
             }
           } 
         }
-        else if (iSerial.status.step == 20) //ALLOW CLUTCH TO SPRING RETURN TO ENGAGED POSITION
+        else if (iSerial.status.step == 20)
+        {
+          motors[Motors::CLUTCH].jogUsingPower(-100.0);
+          if (iSerial.modeTime() > TIME_CLUTCH_IMPULSE_TO_ENGAGE)
+          {
+            iSerial.status.step = 24;
+          }
+        }
+        else if (iSerial.status.step == 24) //MOVE CLUTCH TO ENGAGED POSITION: ALLOW CLUTCH TO SPRING RETURN TO ENGAGED POSITION
         {
           motors[Motors::CLUTCH].stop();
           iSerial.resetModeTime();
-          iSerial.status.step = 21;
+          iSerial.status.step = 25;
           
         }
-        else if (iSerial.status.step == 21)
+        else if (iSerial.status.step == 25)
         {
           if (gearChangeReq)
           {
@@ -1189,8 +1198,16 @@ void runHomingRoutine(){
   }
   else if (iSerial.status.step == 50)
   {
+    motors[Motors::CLUTCH].jogUsingPower(-100.0);
+    if(iSerial.modeTime() > TIME_CLUTCH_IMPULSE_TO_ENGAGE)
+    {
+      iSerial.status.step = 51;
+    }
+  }
+  else if (iSerial.status.step == 51)
+  {
     motors[Motors::CLUTCH].stop();
-    if (iSerial.modeTime() > 1000)
+    if (iSerial.modeTime() > TIME_CLUTCH_DISENGAGE)
     {
       iSerial.debugPrintln("HOMING - done!");
       iSerial.status.step = 1000;
