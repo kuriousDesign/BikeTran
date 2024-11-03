@@ -1094,7 +1094,7 @@ void runHomingRoutine(){
   else if (iSerial.status.step == 20) //ENABLE LINEAR MOTOR
   {
     motors[Motors::LINEAR].enable();
-    if(motors[Motors::LINEAR].getState() == Motor::States::IDLE && motors[Motors::CLUTCH].getState() == Motor::States::IDLE){
+    if(motors[Motors::LINEAR].getState() == Motor::States::IDLE && motors[Motors::CLUTCH].getState() == Motor::States::JOGGING){
       iSerial.debugPrintln("HOMING - Moving linear motor to positive lim sw");
       iSerial.resetModeTime();
       iSerial.status.step = 21;
