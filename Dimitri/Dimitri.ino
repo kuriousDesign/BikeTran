@@ -198,7 +198,7 @@ unsigned long timeNow = millis();
 
 int tempInt = 0;
 bool isHomed = false;
-
+int prevStep;
 void loop()
 {
   unsigned long timeNowUs = micros();
@@ -209,8 +209,8 @@ void loop()
     }
     lastUpdateUs = timeNowUs;
 
-    //used for plotting velocity
-    if(true){
+    if(iSerial.status.step != prevStep){
+      prevStep = iSerial.status.step;
       
       Serial.print(iSerial.status.mode);
       Serial.print(", ");
