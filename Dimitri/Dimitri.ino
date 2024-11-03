@@ -34,13 +34,13 @@ const bool SIM_MODE = false; //set to true to simulate motor behavior (encoders 
 // INPUTS
 ////////////////////////////////////////////////////
 
-// TOGLGLE MOTOR - RED: mtr+, WHITE: mtr-, BLUE: encVCC, BLACK: encGND,  YELLOW: encA, GREEN: encB,
+// CLUTCH MOTOR - WIRED TO A - RED: mtr+, WHITE: mtr-, BLUE: encVCC, BLACK: encGND,  YELLOW: encA, GREEN: encB,
 // when motor has positive power, it moves the motor in the engaged direction
 #define PIN_CLUTCH_DIR 12   
 #define PIN_CLUTCH_PWM 3
 #define PIN_CLUTCH_CURRENT A0     
    
-// LINEAR MOTOR - RED: mtr+, WHITE: mtr-, BLUE: encGND, BLACK: encVCC,  YELLOW: encA, GREEN: encB,
+// LINEAR MOTOR - WIRED TO B - RED: mtr+, WHITE: mtr-, BLUE: encGND, BLACK: encVCC,  YELLOW: encA, GREEN: encB,
 // when motor has positive power, it moves the motor in the down shift direction
 #define PIN_LINEAR_PWM 11
 #define PIN_LINEAR_DIR 13     
@@ -82,8 +82,8 @@ Outputs outputs;
 #define NUM_MOTORS 2
 
 enum Motors {
-  LINEAR=0,
-  CLUTCH=1,
+  CLUTCH=0,
+  LINEAR=1,
 };
 
 // ENCODERS
@@ -107,7 +107,7 @@ Motor::Cfg motorCfgs[NUM_MOTORS] = {
   {"linear",1, 2, "gear", LINEAR_PULSES_PER_UNIT, 20.0, 12.0, 1.0, true, 0.02, 0.05, 500.0, 25.0, 15, 100.0} // LINEAR
 };
 
-
+//clutch a linear b
 Motor motors[NUM_MOTORS] = {
   Motor(PIN_CLUTCH_DIR, PIN_CLUTCH_PWM, &encoders[Motors::CLUTCH], &motorCfgs[Motors::CLUTCH],SIM_MODE),
   Motor(PIN_LINEAR_DIR, PIN_LINEAR_PWM, &encoders[Motors::LINEAR], &motorCfgs[Motors::LINEAR],SIM_MODE)
