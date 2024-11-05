@@ -127,10 +127,10 @@ void Motor::run() {
 
 void Motor::setOutputs(){
     if (_outputPower > 0.0) {
-        digitalWrite(_dirPin, !_cfg->invertDir);
+        digitalWrite(_dirPin, !_cfg->invertMotorDir);
     }
     else if (_outputPower < 0.0) {
-        digitalWrite(_dirPin, _cfg->invertDir);
+        digitalWrite(_dirPin, _cfg->invertMotorDir);
     }
     else {
         digitalWrite(_dirPin, false);
@@ -331,7 +331,7 @@ void Motor::update() {
 
 
     // Read the encoder and scale to units
-    int32_t dir = _cfg->invertDir ? -1 : 1;
+    int32_t dir = _cfg->invertEncoderDir ? -1 : 1;
     actualEncoderPulses = _encoder->read() * dir;
     actualPosition = double(actualEncoderPulses) / _cfg->pulsesPerUnit;
     double dPosition = actualPosition - lastPositions[_indexFilter];

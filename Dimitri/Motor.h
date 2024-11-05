@@ -19,7 +19,8 @@ public:
         //double maxAcceleration; //units
         double softLimitPositive; //units
         double softLimitNegative; //units
-        bool invertDir;
+        bool invertEncoderDir;
+        bool invertMotorDir;
         double positionTol; //units
         double zeroVelocityTol; //units
         double kP; //proportional gain for PID, units

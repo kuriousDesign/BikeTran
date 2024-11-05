@@ -12,7 +12,7 @@ const unsigned long TIME_CLUTCH_IMPULSE_TO_ENGAGE=100; //ms, time to move clutch
 const unsigned long TIME_CLUTCH_ENGAGE = 1300;    //ms, time to wait after clutch motor moves from disengaged to engaged using spring
 
 const double HOME_OFFSET = 0.12; // distance (measured in gears) to move away from positive limit switch in order to be in 12th gear
-const OperatingModes OPERATING_MODE = OperatingModes::AUTO; // set to AUTO_DEBUG to run the system in debug mode
+const OperatingModes OPERATING_MODE = OperatingModes::MANUAL_LINEAR; // set to AUTO_DEBUG to run the system in debug mode
 
 const bool AUTO_RESET = true; // if this is true, the system will automatically reset when inactive (no errors)
 const bool SHIFT_BUTTONS_DISABLED = false; // if this is true, the shift buttons will be disabled (ignored)
@@ -102,9 +102,9 @@ const double LINEAR_PULSES_PER_UNIT = 8600.0 / (double(NUM_GEARS) - 1.0); // 920
 
 
 Motor::Cfg motorCfgs[NUM_MOTORS] = {
-  //name, homeDir, homeType, unit, pulsesPerUnit, maxVelocity, softLimitPositive, softLimitNegative, invertDir, positionTol, zeroVelocityTol, kP, kD, nudgeTimeMs, nudgePower
-  {"clutch",-1, 2, "deg", CLUTCH_PULSES_PER_UNIT, 1000.0, 180.0, 0.0, false, 5.0, 5.0, 10.0, 1.0, 0, 100.0}, // CLUTCH name, homeDir, homeType, unit, pulsesPerUnit, maxVelocity, softLimitPositive, softLimitNegative, invertDir, positionTol, zeroVelocityTol, kP, kD
-  {"linear",1, 2, "gear", LINEAR_PULSES_PER_UNIT, 20.0, 12.0, 1.0, true, 0.02, 0.05, 500.0, 25.0, 15, 100.0} // LINEAR
+  //name, homeDir, homeType, unit, pulsesPerUnit, maxVelocity, softLimitPositive, softLimitNegative, invertEncoder, invertMotorDir, positionTol, zeroVelocityTol, kP, kD, nudgeTimeMs, nudgePower
+  {"clutch",-1, 2, "deg", CLUTCH_PULSES_PER_UNIT, 1000.0, 180.0, 0.0, false, false, 5.0, 5.0, 10.0, 1.0, 0, 100.0}, // CLUTCH name, homeDir, homeType, unit, pulsesPerUnit, maxVelocity, softLimitPositive, softLimitNegative, invertDir, positionTol, zeroVelocityTol, kP, kD
+  {"linear",1, 2, "gear", LINEAR_PULSES_PER_UNIT, 20.0, 12.0, 1.0, false, true, 0.02, 0.05, 500.0, 25.0, 15, 100.0} // LINEAR
 };
 
 //clutch a linear b
@@ -1026,18 +1026,24 @@ void runClutchMotorManualMode(){
 }
 
 void runLinearMotorManualMode(){
+    motors[Motors::CLUTCH].enable();
+    motors[Motors::CLUTCH].jogUsingPower(50);
     
     if(inputs.ShiftUpSw){
         //analogWrite(PIN_LINEAR_PWM, 255);
         //digitalWrite(PIN_LINEAR_DIR, !motorCfgs[Motors::LINEAR].invertDir);
         motors[Motors::LINEAR].enable();
         motors[Motors::LINEAR].jogUsingPower(10.0);
+        Serial.print("position: ");
+        Serial.println(motors[Motors::LINEAR].actualPosition);
         //motors[Motors::LINEAR].moveAbs(11.0);
     } else if(inputs.ShiftDownSw){
         //analogWrite(PIN_LINEAR_PWM, 255);
         //digitalWrite(PIN_LINEAR_DIR, motorCfgs[Motors::LINEAR].invertDir);
         motors[Motors::LINEAR].enable();
         motors[Motors::LINEAR].jogUsingPower(-10.0);
+        Serial.print("position: ");
+        Serial.println(motors[Motors::LINEAR].actualPosition);
         //motors[Motors::LINEAR].moveAbs(6.0);
     } else {
         //digitalWrite(PIN_LINEAR_PWM, LOW);
