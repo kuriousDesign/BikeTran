@@ -1,4 +1,5 @@
 //CONFIG
+#include <Arduino.h>
 
 enum OperatingModes
 {
@@ -7,12 +8,18 @@ enum OperatingModes
   MANUAL_LINEAR = 2,
 };
 
-const unsigned long TIME_CLUTCH_DISENGAGE = 1000; //ms, time to wait after clutch disengages before linear motor moves
-const unsigned long TIME_CLUTCH_IMPULSE_TO_ENGAGE=100; //ms, time to move clutch motor from disengaged to engaged using impulse
-const unsigned long TIME_CLUTCH_ENGAGE = 1300;    //ms, time to wait after clutch motor moves from disengaged to engaged using spring
+//Motor::TuningParams LinearTuningParams = {0.0, 0.0, 0, 0.0};
+const double LinearKp = 500.0;  //@11.05VDC
+const double LinearKd = 0.0;
+uint16_t LinearNudgeTimeMs = 4; //15
+const double LinearNudgePower = 100.0;
 
-const double HOME_OFFSET = 0.12; // distance (measured in gears) to move away from positive limit switch in order to be in 12th gear
-const OperatingModes OPERATING_MODE = OperatingModes::MANUAL_LINEAR; // set to AUTO_DEBUG to run the system in debug mode
+const unsigned long TIME_CLUTCH_DISENGAGE = 200; //ms, time to wait after clutch disengages before linear motor moves
+const unsigned long TIME_CLUTCH_IMPULSE_TO_ENGAGE=100; //ms, time to move clutch motor from disengaged to engaged using impulse
+const unsigned long TIME_CLUTCH_ENGAGE = 0;    //ms, time to wait after clutch motor moves from disengaged to engaged using spring
+
+const double HOME_OFFSET = -0.45; // distance (measured in gears) to move away from positive limit switch in order to be in 12th gear
+const OperatingModes OPERATING_MODE = OperatingModes::AUTO; // set to AUTO_DEBUG to run the system in debug mode
 
 const bool AUTO_RESET = true; // if this is true, the system will automatically reset when inactive (no errors)
 const bool SHIFT_BUTTONS_DISABLED = false; // if this is true, the shift buttons will be disabled (ignored)
@@ -104,7 +111,7 @@ const double LINEAR_PULSES_PER_UNIT = 8600.0 / (double(NUM_GEARS) - 1.0); // 920
 Motor::Cfg motorCfgs[NUM_MOTORS] = {
   //name, homeDir, homeType, unit, pulsesPerUnit, maxVelocity, softLimitPositive, softLimitNegative, invertEncoder, invertMotorDir, positionTol, zeroVelocityTol, kP, kD, nudgeTimeMs, nudgePower
   {"clutch",-1, 2, "deg", CLUTCH_PULSES_PER_UNIT, 1000.0, 180.0, 0.0, false, false, 5.0, 5.0, 10.0, 1.0, 0, 100.0}, // CLUTCH name, homeDir, homeType, unit, pulsesPerUnit, maxVelocity, softLimitPositive, softLimitNegative, invertDir, positionTol, zeroVelocityTol, kP, kD
-  {"linear",1, 2, "gear", LINEAR_PULSES_PER_UNIT, 20.0, 12.0, 1.0, false, true, 0.02, 0.05, 500.0, 25.0, 15, 100.0} // LINEAR
+  {"linear",1, 2, "gear", LINEAR_PULSES_PER_UNIT, 20.0, 12.0, 1.0, true, false, 0.02, 0.05, LinearKp, LinearKd, LinearNudgeTimeMs, LinearNudgePower} // LINEAR
 };
 
 //clutch a linear b
@@ -118,6 +125,9 @@ MotionData motionData;
 bool sw = false;
 int time_now;
 long last_time = millis();
+
+long shiftTimeMs = 0;
+long shiftStartTimeMs = 0;
 
 // SHIFTER
 Shifter shifter(PIN_SHIFT_UP, PIN_SHIFT_DOWN);
@@ -209,7 +219,16 @@ void loop()
     }
     lastUpdateUs = timeNowUs;
 
-    if(iSerial.status.step != prevStep){
+    if(true){
+      Serial.print(motors[Motors::LINEAR].getOutputPower());
+      Serial.print(", ");
+      Serial.print(motors[Motors::LINEAR].actualPosition);
+      Serial.print(", ");
+      Serial.println(shiftTimeMs);
+
+    }
+
+    if(false && iSerial.status.step != prevStep){
       prevStep = iSerial.status.step;
       
       Serial.print(iSerial.status.mode);
@@ -355,10 +374,13 @@ void loop()
         {
           if (gearChangeReq)
           {
+            shiftStartTimeMs=timeNow;
             iSerial.setNewMode(Modes::SHIFTING);
           }
           else if(!atTarget){
-          triggerError(Errors::MOTOR_NOT_AT_TARGET_WHILE_IDLE);
+          //triggerError(Errors::MOTOR_NOT_AT_TARGET_WHILE_IDLE);
+          iSerial.status.mode = Modes::SHIFTING;
+          iSerial.status.step = 24;
           }
         }
         break;
@@ -429,6 +451,7 @@ void loop()
           }
           else if (iSerial.modeTime() > TIME_CLUTCH_ENGAGE && atTarget)
           {
+            shiftTimeMs = timeNow-shiftStartTimeMs;
             iSerial.setNewMode(Modes::IDLE);
           }
           else if (iSerial.modeTime() > 4000)
@@ -439,10 +462,10 @@ void loop()
         break;
 
       case Modes::MANUAL:
-        if (iSerial.status.step == 0){
+        if (OPERATING_MODE == OperatingModes::MANUAL_CLUTCH){
           runClutchMotorManualMode();
         }
-        else if (iSerial.status.step == 1){
+        else if (OPERATING_MODE == OperatingModes::MANUAL_LINEAR){
           runLinearMotorManualMode();
         }
         break;
@@ -1027,7 +1050,7 @@ void runClutchMotorManualMode(){
 
 void runLinearMotorManualMode(){
     motors[Motors::CLUTCH].enable();
-    motors[Motors::CLUTCH].jogUsingPower(50);
+    motors[Motors::CLUTCH].jogUsingPower(100);
     
     if(inputs.ShiftUpSw){
         //analogWrite(PIN_LINEAR_PWM, 255);

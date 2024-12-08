@@ -27,6 +27,7 @@ void Motor::run() {
 
         // Update these properties that are set by the update function
     isStill = _isStill;
+    atPositionAndStill = _atPositionAndStill;
     atPosition = _atPosition;
 
     switch (_state) {
@@ -73,7 +74,7 @@ void Motor::run() {
             if (_stopReq) {
                 _nextState = States::STOPPING;
             }
-            else if (atPosition) {
+            else if (atPositionAndStill) {
                 _nextState = States::IDLE;
             } else {
                 _outputPower = pdControl();
@@ -156,7 +157,7 @@ bool Motor::zero() {
 
 bool Motor::setPosition(double position) {
     int32_t pulses = round(position*_cfg->pulsesPerUnit);
-    _encoder->write(pulses);
+    _encoder->write(pulses*(_cfg->invertEncoderDir ? -1 : 1));
     for(int i = 0; i < NUM_FILTER_POINTS; i++) {
         lastPositions[i] = position;
         lastErrors[i] = targetPosition - position;
@@ -253,7 +254,7 @@ double Motor::pdControl() {
 void Motor::checkIsNudging(bool isJogging = false) {
     // check nudging
     _isNudging = false;
-    if(_isStill && (!_atPosition || isJogging) && _cfg->nudgeTimeMs > 0) {
+    if(_isStill && (!_atPositionAndStill || isJogging) && _cfg->nudgeTimeMs > 0) {
         if(!_nudgingStarted ) {
             _nudgeStartTime = millis();
             _nudgingStarted = true;
@@ -386,7 +387,13 @@ void Motor::update() {
     
     //_isStill = sumSpeeds/double(NUM_FILTER_POINTS) <= _cfg->zeroVelocityTol;
     _isStill = abs(actualVelocity) <= _cfg->zeroVelocityTol;
-    _atPosition = sumErrors/double(NUM_FILTER_POINTS) <= _cfg->positionTol && _isStill;
+    _atPositionAndStill = sumErrors/double(NUM_FILTER_POINTS) <= _cfg->positionTol && _isStill;
+
+    if (abs(error) > _cfg->positionTol) {
+        _atPosition = false;
+    } else {
+        _atPosition = true;
+    }
 
     if (_state == States::MOVING) {
         _outputPower = pdControl();

@@ -9,6 +9,7 @@
 
 class Motor {
 public:
+
     struct Cfg {
         String name;
         int8_t homingDir; //-1 for reverse, 1 for forward
@@ -32,7 +33,9 @@ public:
 
     bool isHomed = false;
     bool isEnabled = false;
-    bool atPosition; //motor position is near target position and is still
+    bool atPositionAndStill; //motor position is near target position and is still
+    bool atPosition; //motor position is near target position
+
     bool isStill; //motor velocity is near zero
     double actualPosition;
     int32_t actualEncoderPulses;
@@ -92,6 +95,7 @@ private:
     double _countsPerUnit = 1.0;
 
     bool _isStill = false;
+    bool _atPositionAndStill = false;
     bool _atPosition = false;
     bool _isNudging = false;
     unsigned long _nudgeStartTime = 0;
