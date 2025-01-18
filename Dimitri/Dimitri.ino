@@ -77,7 +77,7 @@ const bool SIM_MODE = false; //set to true to simulate motor behavior (encoders 
   
 #define PIN_LINEAR_ENC_A 18   //
 #define PIN_LINEAR_ENC_B 19   //
-#define PIN_CLUTCH_ENC_A 20   //
+#define PIN_CLUTCH_ENC_A 20   // black brown red orange
 #define PIN_CLUTCH_ENC_B 21   //
 #define PIN_EINK_BIT0 22      // NOTE THAT PINS 22, 24, 26, & 28 ARE USED AS OUTPUTS FOR GEAR NUMBER DISPLAY ON E-INK
 #define NUM_BITS 4
@@ -189,7 +189,7 @@ String jsonString = "";
 // LOOP SCAN RATE
 unsigned long lastUpdateUs = 0;
 
-const bool SOL_ON = false;
+const bool SOL_ON = true;
 
 void setup()
 {
@@ -1362,6 +1362,8 @@ void runHomingRoutine(){
   {
     if(motors[Motors::LINEAR].getState() == Motor::States::IDLE && atTarget){
       iSerial.resetModeTime();
+      //motors[Motors::LINEAR].setPosition(1.0);
+      updateGearNumberDigitalOutputs(1.0);
       iSerial.status.step = 50;
     }
   }
@@ -1417,7 +1419,7 @@ void getCfg()
 {
   //dimitriCfg.operatingMode = OperatingModes::MANUAL_CLUTCH;
   dimitriCfg.hasClutchSolenoid = true;
-  dimitriCfg.preClutchMoveSolTimeMs = 100;
+  dimitriCfg.preClutchMoveSolTimeMs = 0;
   dimitriCfg.postClutchMoveSolTimeMs = 100;
   // dimitriCfg.autoReset = true;
   // dimitriCfg.shiftButtonsDisabled = false;
