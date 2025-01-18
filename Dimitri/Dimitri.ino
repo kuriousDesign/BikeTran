@@ -189,6 +189,7 @@ String jsonString = "";
 // LOOP SCAN RATE
 unsigned long lastUpdateUs = 0;
 
+const bool SOL_ON = false;
 
 void setup()
 {
@@ -218,7 +219,7 @@ void setup()
   if (dimitriCfg.hasClutchSolenoid)
   {
     pinMode(PIN_CLUTCH_SOL, OUTPUT);
-    digitalWrite(PIN_CLUTCH_SOL, LOW);
+    digitalWrite(PIN_CLUTCH_SOL, !SOL_ON);
   }
 
 
@@ -230,6 +231,7 @@ void setup()
 
   Timer1.initialize(UPDATE_TIME_US); // Initialize timer to trigger every 1000 microseconds
   Timer1.attachInterrupt(updateMotors);
+  delay(5000);
 }
 
 // int deleteMe = 0;
@@ -427,7 +429,7 @@ void loop()
         {
           if (dimitriCfg.hasClutchSolenoid)
           {
-            digitalWrite(PIN_CLUTCH_SOL, HIGH);
+            digitalWrite(PIN_CLUTCH_SOL, SOL_ON);
             if (iSerial.modeTime() > dimitriCfg.preClutchMoveSolTimeMs)
             {
               iSerial.status.step = 2;
@@ -453,11 +455,11 @@ void loop()
           {
             if(iSerial.modeTime() < dimitriCfg.postClutchMoveSolTimeMs)
             {
-              digitalWrite(PIN_CLUTCH_SOL, HIGH);
+              digitalWrite(PIN_CLUTCH_SOL, SOL_ON);
             }
             else
             {
-              digitalWrite(PIN_CLUTCH_SOL, LOW);
+              digitalWrite(PIN_CLUTCH_SOL, !SOL_ON);
             }
           }
         }
@@ -779,7 +781,7 @@ void turnAllOff() // turn off all outputs
   //digitalWrite(PIN_LINEAR_PWM, 0);
 
   if(dimitriCfg.hasClutchSolenoid){
-    digitalWrite(PIN_CLUTCH_SOL, LOW);
+    digitalWrite(PIN_CLUTCH_SOL, !SOL_ON);
   }
 }
 
@@ -1101,16 +1103,16 @@ void runClutchMotorManualMode(){
         { 
           if (iSerial.modeTime() < dimitriCfg.preClutchMoveSolTimeMs)
           {
-            digitalWrite(PIN_CLUTCH_SOL, HIGH);
+            digitalWrite(PIN_CLUTCH_SOL, SOL_ON);
           }
           else if (iSerial.modeTime() < dimitriCfg.postClutchMoveSolTimeMs)
           {
-            digitalWrite(PIN_CLUTCH_SOL, HIGH);
+            digitalWrite(PIN_CLUTCH_SOL, SOL_ON);
             motors[Motors::CLUTCH].jogUsingPower(100);
           } 
           else 
           {
-            digitalWrite(PIN_CLUTCH_SOL, LOW);
+            digitalWrite(PIN_CLUTCH_SOL, !SOL_ON);
             motors[Motors::CLUTCH].jogUsingPower(100);
           }
         }
@@ -1130,7 +1132,7 @@ void runClutchMotorManualMode(){
         motors[Motors::CLUTCH].disable();
         iSerial.resetModeTime();
         if(dimitriCfg.hasClutchSolenoid){
-          digitalWrite(PIN_CLUTCH_SOL, LOW);
+          digitalWrite(PIN_CLUTCH_SOL, !SOL_ON);
         }
     }
 }
@@ -1141,16 +1143,16 @@ void runLinearMotorManualMode(){
     { 
       if (iSerial.modeTime() < dimitriCfg.preClutchMoveSolTimeMs)
       {
-        digitalWrite(PIN_CLUTCH_SOL, HIGH);
+        digitalWrite(PIN_CLUTCH_SOL, SOL_ON);
       }
       else if (iSerial.modeTime() < dimitriCfg.postClutchMoveSolTimeMs)
       {
-        digitalWrite(PIN_CLUTCH_SOL, HIGH);
+        digitalWrite(PIN_CLUTCH_SOL, SOL_ON);
         motors[Motors::CLUTCH].jogUsingPower(100);
       } 
       else 
       {
-        digitalWrite(PIN_CLUTCH_SOL, LOW);
+        digitalWrite(PIN_CLUTCH_SOL, !SOL_ON);
         motors[Motors::CLUTCH].jogUsingPower(100);
       }
     }
@@ -1224,7 +1226,7 @@ void runHomingRoutine(){
   {
     if (dimitriCfg.hasClutchSolenoid)
     {
-      digitalWrite(PIN_CLUTCH_SOL, HIGH);
+      digitalWrite(PIN_CLUTCH_SOL, SOL_ON);
       if (iSerial.modeTime() > dimitriCfg.preClutchMoveSolTimeMs)
       {
         iSerial.status.step = 10;
@@ -1248,9 +1250,9 @@ void runHomingRoutine(){
     }
     if(dimitriCfg.hasClutchSolenoid){
       if(iSerial.modeTime() < dimitriCfg.postClutchMoveSolTimeMs){
-        digitalWrite(PIN_CLUTCH_SOL, HIGH);
+        digitalWrite(PIN_CLUTCH_SOL, SOL_ON);
       } else {
-        digitalWrite(PIN_CLUTCH_SOL, LOW);
+        digitalWrite(PIN_CLUTCH_SOL, !SOL_ON);
       }
     }
   }
@@ -1264,7 +1266,7 @@ void runHomingRoutine(){
     }
     if (dimitriCfg.hasClutchSolenoid)
     {
-      digitalWrite(PIN_CLUTCH_SOL, LOW);
+      digitalWrite(PIN_CLUTCH_SOL, !SOL_ON);
     }
   }
   else if (iSerial.status.step == 21) //MOVING LINEAR TO POSITIVE LIMIT SWITCH
