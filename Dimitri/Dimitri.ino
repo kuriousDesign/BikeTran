@@ -398,7 +398,6 @@ void loop()
         else if (iSerial.status.step == 1000 && atTarget){
           motors[Motors::CLUTCH].enable();
           motors[Motors::LINEAR].enable();
-          setTargetGear(1);
           iSerial.setNewMode(Modes::IDLE);
         }
 
@@ -1352,7 +1351,7 @@ void runHomingRoutine(){
   else if (iSerial.status.step == 40) //MOVING LINEAR TO 1ST GEAR
   {
     motors[Motors::LINEAR].moveAbs(1.0);
-    //shiftData.targetGear = 1;
+    shiftData.targetGear = 1;
     if(motors[Motors::LINEAR].getState() != Motor::States::IDLE){
       iSerial.debugPrintln("HOMING - Moving linear motor to 1st gear");
       iSerial.resetModeTime();
@@ -1363,8 +1362,8 @@ void runHomingRoutine(){
   {
     if(motors[Motors::LINEAR].getState() == Motor::States::IDLE && atTarget){
       iSerial.resetModeTime();
-      setTargetGear(1);
-      updateGearNumberDigitalOutputs(1);
+      //motors[Motors::LINEAR].setPosition(1.0);
+      updateGearNumberDigitalOutputs(1.0);
       iSerial.status.step = 50;
     }
   }
