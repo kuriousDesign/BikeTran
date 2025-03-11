@@ -22,13 +22,16 @@ struct DimitriCfg
   // double linearKd;
   // uint16_t linearNudgeTimeMs;
   // double linearNudgePower;
-  // unsigned long timeClutchDisengage;
+
   // unsigned long timeClutchImpulseToEngage;
   // unsigned long timeClutchEngage;
   // double homeOffset;
 };
 
 DimitriCfg dimitriCfg = {};
+
+const double LinearHomingPwr = 100.0;
+const double ClutchHoldingPwr = 20.0;
 
 
 //Motor::TuningParams LinearTuningParams = {0.0, 0.0, 0, 0.0};
@@ -41,10 +44,10 @@ const unsigned long TIME_CLUTCH_DISENGAGE = 200; //ms, time to wait after clutch
 const unsigned long TIME_CLUTCH_IMPULSE_TO_ENGAGE=100; //ms, time to move clutch motor from disengaged to engaged using impulse
 const unsigned long TIME_CLUTCH_ENGAGE = 0;    //ms, time to wait after clutch motor moves from disengaged to engaged using spring
 
-const double HOME_OFFSET = 0.45; // distance (measured in gears) to move away from limit switch in order to be in 1st Gear
-const OperatingModes OPERATING_MODE = OperatingModes::AUTO; // set to AUTO_DEBUG to run the system in debug mode
+const double HOME_OFFSET = 0.0; // distance (measured in gears) to move away from limit switch in order to be in 1st Gear
+const OperatingModes OPERATING_MODE = OperatingModes::MANUAL_CLUTCH; // set to AUTO_DEBUG to run the system in debug mode
 
-const bool AUTO_RESET = true; // if this is true, the system will automatically reset when inactive (no errors)
+const bool AUTO_RESET = false; // if this is true, the system will automatically reset when inactive (no errors)
 const bool SHIFT_BUTTONS_DISABLED = false; // if this is true, the shift buttons will be disabled (ignored)
 const bool SIM_MODE = false; //set to true to simulate motor behavior (encoders positions for now, TODO: simulate lim switches)
 
@@ -131,13 +134,13 @@ Encoder encoders[NUM_MOTORS] = {
 //#define MAX_POSITION (MIN_POSITION + float(NUM_GEARS - 1) * COUNTS_PER_GEAR)
 
 const double CLUTCH_PULSES_PER_UNIT = 780.0/180.0;
-const double LINEAR_PULSES_PER_UNIT = 8600.0 / (double(NUM_GEARS) - 1.0); // 9200 is the max position, 488 is the min position
+const double LINEAR_PULSES_PER_UNIT = 14.0/11.0*2.0*8600.0 / (double(NUM_GEARS) - 1.0); // 9200 is the max position, 488 is the min position
 
 
 Motor::Cfg motorCfgs[NUM_MOTORS] = {
   //name, homeDir, homeType, unit, pulsesPerUnit, maxVelocity, softLimitPositive, softLimitNegative, invertEncoder, invertMotorDir, positionTol, zeroVelocityTol, kP, kD, nudgeTimeMs, nudgePower
   {"clutch",-1, 2, "deg", CLUTCH_PULSES_PER_UNIT, 1000.0, 180.0, 0.0, false, false, 5.0, 5.0, 10.0, 1.0, 0, 100.0}, // CLUTCH name, homeDir, homeType, unit, pulsesPerUnit, maxVelocity, softLimitPositive, softLimitNegative, invertDir, positionTol, zeroVelocityTol, kP, kD
-  {"linear",1, 2, "gear", LINEAR_PULSES_PER_UNIT, 20.0, 12.0, 1.0, true, false, 0.02, 0.05, LinearKp, LinearKd, LinearNudgeTimeMs, LinearNudgePower} // LINEAR
+  {"linear",1, 2, "gear", LINEAR_PULSES_PER_UNIT, 20.0, 12.0, 1.0, false, false, 0.02, 0.05, LinearKp, LinearKd, LinearNudgeTimeMs, LinearNudgePower} // LINEAR
 };
 
 //clutch a linear b
@@ -200,7 +203,7 @@ void setup()
   iSerial.init();
   iSerial.THIS_DEVICE_ID = BIKE_MEGA_ID;
   iSerial.setAutoSendStatus(false); // status updates sent when mode changes
-  iSerial.debug = false;
+  iSerial.debug = true;
 
   iSerial.setNewMode(Modes::ABORTING);
   
@@ -233,7 +236,15 @@ void setup()
 
   Timer1.initialize(UPDATE_TIME_US); // Initialize timer to trigger every 1000 microseconds
   Timer1.attachInterrupt(updateMotors);
-  delay(5000);
+  unsigned long timeNowMs = millis();
+  while (millis() - timeNowMs < 5000)
+  {
+    delay(250);
+    readInputs();
+    iSerial.debugPrint("linear lim sw: ");
+    iSerial.debugPrintln(String(inputs.LinearNegLimSw));
+  }
+
 }
 
 // int deleteMe = 0;
@@ -255,7 +266,7 @@ void loop()
     }
     lastUpdateUs = timeNowUs;
 
-    if(true){
+    if(false){
       Serial.print(motors[Motors::LINEAR].getOutputPower());
       Serial.print(", ");
       Serial.print(motors[Motors::LINEAR].actualPosition);
@@ -378,7 +389,7 @@ void loop()
         {
           iSerial.setNewMode(Modes::MANUAL);
         }
-        else if (AUTO_RESET)
+        else if (AUTO_RESET || (inputs.ShiftDownSw && inputs.ShiftUpSw))
         {
           iSerial.setNewMode(Modes::RESETTING);
         }
@@ -467,6 +478,7 @@ void loop()
         }
         else if (iSerial.status.step == 10)
         {
+          motors[Motors::CLUTCH].jogUsingPower(ClutchHoldingPwr);
           motors[Motors::LINEAR].moveAbs(shiftData.targetGear);
           if (motors[Motors::LINEAR].getState() == Motor::States::MOVING)
           {
@@ -476,6 +488,7 @@ void loop()
         }
         else if (iSerial.status.step == 11)
         {
+          motors[Motors::CLUTCH].jogUsingPower(ClutchHoldingPwr);
           if(gearChangeReq){
             iSerial.status.step = 10;
           }
@@ -1104,7 +1117,11 @@ void runClutchMotorManualMode(){
         motors[Motors::CLUTCH].enable();
         if (dimitriCfg.hasClutchSolenoid)
         { 
-          if (iSerial.modeTime() < dimitriCfg.preClutchMoveSolTimeMs)
+          if (iSerial.modeTime() > TIME_CLUTCH_DISENGAGE)
+          {
+            motors[Motors::CLUTCH].jogUsingPower(ClutchHoldingPwr);
+          }
+          else if (iSerial.modeTime() < dimitriCfg.preClutchMoveSolTimeMs)
           {
             digitalWrite(PIN_CLUTCH_SOL, SOL_ON);
           }
@@ -1144,7 +1161,11 @@ void runLinearMotorManualMode(){
     motors[Motors::CLUTCH].enable();
     if (dimitriCfg.hasClutchSolenoid)
     { 
-      if (iSerial.modeTime() < dimitriCfg.preClutchMoveSolTimeMs)
+      if (iSerial.modeTime() > TIME_CLUTCH_DISENGAGE)
+      {
+        motors[Motors::CLUTCH].jogUsingPower(ClutchHoldingPwr);
+      }
+      else if (iSerial.modeTime() < dimitriCfg.preClutchMoveSolTimeMs)
       {
         digitalWrite(PIN_CLUTCH_SOL, SOL_ON);
       }
@@ -1169,7 +1190,7 @@ void runLinearMotorManualMode(){
         //analogWrite(PIN_LINEAR_PWM, 255);
         //digitalWrite(PIN_LINEAR_DIR, !motorCfgs[Motors::LINEAR].invertDir);
         motors[Motors::LINEAR].enable();
-        motors[Motors::LINEAR].jogUsingPower(10.0);
+        motors[Motors::LINEAR].jogUsingPower(20.0);
         Serial.print("position: ");
         Serial.println(motors[Motors::LINEAR].actualPosition);
         //motors[Motors::LINEAR].moveAbs(11.0);
@@ -1177,7 +1198,7 @@ void runLinearMotorManualMode(){
         //analogWrite(PIN_LINEAR_PWM, 255);
         //digitalWrite(PIN_LINEAR_DIR, motorCfgs[Motors::LINEAR].invertDir);
         motors[Motors::LINEAR].enable();
-        motors[Motors::LINEAR].jogUsingPower(-10.0);
+        motors[Motors::LINEAR].jogUsingPower(-20.0);
         Serial.print("position: ");
         Serial.println(motors[Motors::LINEAR].actualPosition);
         //motors[Motors::LINEAR].moveAbs(6.0);
@@ -1262,6 +1283,7 @@ void runHomingRoutine(){
   else if (iSerial.status.step == 20) //ENABLE LINEAR MOTOR
   {
     motors[Motors::LINEAR].enable();
+    motors[Motors::CLUTCH].jogUsingPower(ClutchHoldingPwr);
     if(motors[Motors::LINEAR].getState() == Motor::States::IDLE && motors[Motors::CLUTCH].getState() == Motor::States::JOGGING){
       if (dimitriCfg.homingDirection == 1){
         iSerial.debugPrintln("HOMING - Moving linear motor to positive lim sw");
@@ -1281,13 +1303,13 @@ void runHomingRoutine(){
   }
   else if (iSerial.status.step == 21) //JOGGING LINEAR TO POSITIVE LIMIT SWITCH
   {
-    motors[Motors::LINEAR].jogUsingPower(100.0);
+    motors[Motors::LINEAR].jogUsingPower(LinearHomingPwr);
     if(inputs.LinearPosLimSw){
       motors[Motors::LINEAR].stop();
       iSerial.debugPrintln("HOMING - LINEAR MOTOR found limit switch");
       iSerial.resetModeTime();
       iSerial.status.step = 25;
-    } else if (iSerial.modeTime() > 1500){
+    } else if (iSerial.modeTime() > 5000){
       iSerial.debugPrintln("ERROR: LINEAR MOTOR timed out while trying to reach limit switch");
       iSerial.debugPrint("LINEAR MOTOR Actual Position: ");
       iSerial.debugPrintln(String(encoders[Motors::LINEAR].read()));
@@ -1365,14 +1387,15 @@ void runHomingRoutine(){
   ///////////////////////////////////////
   else if (iSerial.status.step == 51) //MOVING LINEAR TO POSITIVE LIMIT SWITCH
   {
-    motors[Motors::LINEAR].jogUsingPower(-100.0);
+    motors[Motors::LINEAR].jogUsingPower(-LinearHomingPwr);
+    motors[Motors::CLUTCH].jogUsingPower(ClutchHoldingPwr);
     if(inputs.LinearNegLimSw){
       motors[Motors::LINEAR].stop();
       iSerial.debugPrintln("HOMING - LINEAR MOTOR found negative limit switch");
       iSerial.resetModeTime();
       iSerial.status.step = 55;
     } 
-    else if (iSerial.modeTime() > 1500){
+    else if (iSerial.modeTime() > 5000){
       iSerial.debugPrintln("ERROR: LINEAR MOTOR timed out while trying to reach limit switch");
       iSerial.debugPrint("LINEAR MOTOR Actual Position: ");
       iSerial.debugPrintln(String(encoders[Motors::LINEAR].read()));
@@ -1384,6 +1407,7 @@ void runHomingRoutine(){
     
     if(iSerial.modeTime() > 500){
       //encoders[Motors::LINEAR].write(0);
+      motors[Motors::CLUTCH].jogUsingPower(ClutchHoldingPwr);
       iSerial.debugPrint("LINEAR MOTOR Actual Position before zero(): ");
       iSerial.debugPrintln(String(encoders[Motors::LINEAR].read()));
       motors[Motors::LINEAR].zero();
@@ -1394,7 +1418,7 @@ void runHomingRoutine(){
       iSerial.status.step = 56;
     }
   }
-  else if (iSerial.status.step == 25){
+  else if (iSerial.status.step == 56){
     if (!inputs.LinearNegLimSw){
       motors[Motors::LINEAR].stop();
       if(motors[Motors::LINEAR].getState() == Motor::States::IDLE){
