@@ -31,7 +31,9 @@ struct DimitriCfg
 DimitriCfg dimitriCfg = {};
 
 const double LinearHomingPwr = 100.0;
-const double ClutchHoldingPwr = 20.0;
+const int LinearNudgeTimeMsDuringHomingJog = 50;
+
+const double ClutchHoldingPwr = 25.0;
 
 
 //Motor::TuningParams LinearTuningParams = {0.0, 0.0, 0, 0.0};
@@ -252,11 +254,14 @@ void setup()
 StopWatch stopWatch;
 unsigned long timeNow = millis();
 
+bool resetReq = false;
 
 int tempInt = 0;
 bool isHomed = false;
 int prevStep;
 void loop()
+
+
 {
   unsigned long timeNowUs = micros();
   if (timeNowUs - lastUpdateUs > SCAN_TIME_US)
@@ -331,11 +336,15 @@ void loop()
       }
     }
 
+    resetReq = inputs.ShiftDownSw && inputs.ShiftUpSw;
     //AUTO ABORT IF ERROR
     if (errors.present && iSerial.status.mode >= int(Modes::RESETTING))
     {
       iSerial.setNewMode(Modes::ABORTING);
+    } else if (resetReq && iSerial.status.mode == int(Modes::IDLE)){
+      //iSerial.setNewMode(Modes::RESETTING);
     }
+    
 
     switch (iSerial.status.mode)
     {
@@ -367,7 +376,7 @@ void loop()
         else if (iSerial.status.step == 1)
         {
           // auto clear the errors after 5 seconds
-          if (inputs.ShiftDownSw && inputs.ShiftUpSw)
+          if (resetReq)
           {
             clearErrors();
           }
@@ -389,7 +398,7 @@ void loop()
         {
           iSerial.setNewMode(Modes::MANUAL);
         }
-        else if (AUTO_RESET || (inputs.ShiftDownSw && inputs.ShiftUpSw))
+        else if (AUTO_RESET || (resetReq))
         {
           iSerial.setNewMode(Modes::RESETTING);
         }
@@ -428,6 +437,9 @@ void loop()
           //triggerError(Errors::MOTOR_NOT_AT_TARGET_WHILE_IDLE);
           iSerial.status.mode = Modes::SHIFTING;
           iSerial.status.step = 24;
+          }
+          else if (resetReq){
+            iSerial.setNewMode(Modes::RESETTING);
           }
         }
         break;
@@ -1387,7 +1399,12 @@ void runHomingRoutine(){
   ///////////////////////////////////////
   else if (iSerial.status.step == 51) //MOVING LINEAR TO POSITIVE LIMIT SWITCH
   {
-    motors[Motors::LINEAR].jogUsingPower(-LinearHomingPwr);
+    if(iSerial.modeTime() <=  LinearNudgeTimeMsDuringHomingJog) {
+      motors[Motors::LINEAR].jogUsingPower(-LinearNudgePower);
+    } else {
+      motors[Motors::LINEAR].jogUsingPower(-LinearHomingPwr);
+    }
+   
     motors[Motors::CLUTCH].jogUsingPower(ClutchHoldingPwr);
     if(inputs.LinearNegLimSw){
       motors[Motors::LINEAR].stop();
