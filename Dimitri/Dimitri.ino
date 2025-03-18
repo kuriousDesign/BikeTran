@@ -12,7 +12,7 @@ struct DimitriCfg
 {
   //OperatingModes operatingMode;
   bool hasClutchSolenoid;
-  unsigned long preClutchMoveSolTimeMs;
+  //unsigned long preClutchMoveSolTimeMs;
   unsigned long postClutchMoveSolTimeMs;
   int homingDirection; //use -1 for negative (1st Gear) and +1 for positive (12th gear)
   // bool autoReset;
@@ -32,8 +32,9 @@ DimitriCfg dimitriCfg = {};
 
 const double LinearHomingPwr = 100.0;
 const int LinearNudgeTimeMsDuringHomingJog = 50;
-
 const double ClutchHoldingPwr = 25.0;
+const int clutchSolenoidJostleTimeMs = 20;
+
 
 
 //Motor::TuningParams LinearTuningParams = {0.0, 0.0, 0, 0.0};
@@ -60,9 +61,11 @@ const bool SIM_MODE = false; //set to true to simulate motor behavior (encoders 
 #include "ISerial.h"
 #include "Encoder.h"
 #include "Shifter.h"
+#include "StateManager.h"
 #include "CustomDataTypes.h"
 #include "Motor.h"
 #include "TimerOne.h"
+
 
 
 ////////////////////////////////////////////////////
@@ -249,6 +252,67 @@ void setup()
 
 }
 
+StateManager clutchState;
+
+// if reset is true, it resets the clutchState step to 0, otherwise run the clutchStateMachine
+bool disengageClutch(bool reset=false) 
+{
+  if (reset) {
+      clutchState.transitionToStep(0);
+  }
+  else{
+    clutchState.run();
+    
+    switch (clutchState.Step) {
+        case 0:
+            clutchState.transitionToStep(1);
+            break;
+
+        case 1: // ENABLE CLUTCH MOTOR
+            motors[Motors::CLUTCH].enable();
+            if (motors[Motors::CLUTCH].getState() == Motor::States::IDLE){
+              clutchState.transitionToStep(10);
+            }
+           
+        case 10: // FORCE CLUTCH AGAINST HARDSTOP TO HELP FREE SOLENOID
+            if (dimitriCfg.hasClutchSolenoid) {
+                digitalWrite(PIN_CLUTCH_SOL, SOL_ON);
+                motors[Motors::CLUTCH].jogUsingPower(-100.0);
+                if (clutchState.getStepActiveTime() > clutchSolenoidJostleTimeMs) {
+                    clutchState.transitionToStep(20);
+                }
+            } else {
+                clutchState.transitionToStep(20);
+            }
+            break;
+
+        case 20: // MOVE CLUTCH TO DISENGAGED POSITION
+            motors[Motors::CLUTCH].jogUsingPower(100.0);
+            if (clutchState.getStepActiveTime() > TIME_CLUTCH_DISENGAGE) {
+                clutchState.transitionToStep(1000);
+            }
+
+            if (dimitriCfg.hasClutchSolenoid) {
+                if (clutchState.getStepActiveTime() < dimitriCfg.postClutchMoveSolTimeMs) {
+                    digitalWrite(PIN_CLUTCH_SOL, SOL_ON);
+                } else {
+                    digitalWrite(PIN_CLUTCH_SOL, !SOL_ON);
+                }
+            }
+            break;
+
+        case 1000: //DONE: HOLD CLUTCH AND HOLDING PWR TO KEEP IT IN DISENGAGED POSITION
+            motors[Motors::CLUTCH].jogUsingPower(ClutchHoldingPwr);
+            break;
+
+        default:
+            break;
+    }
+  }
+
+  return clutchState.Step == 1000;
+}
+
 // int deleteMe = 0;
 // int deleteMeSign = 1;
 StopWatch stopWatch;
@@ -260,8 +324,6 @@ int tempInt = 0;
 bool isHomed = false;
 int prevStep;
 void loop()
-
-
 {
   unsigned long timeNowUs = micros();
   if (timeNowUs - lastUpdateUs > SCAN_TIME_US)
@@ -396,6 +458,7 @@ void loop()
         turnAllOff();
         if (OPERATING_MODE == OperatingModes::MANUAL_CLUTCH || OPERATING_MODE == OperatingModes::MANUAL_LINEAR)
         {
+          disengageClutch(true);
           iSerial.setNewMode(Modes::MANUAL);
         }
         else if (AUTO_RESET || (resetReq))
@@ -448,49 +511,22 @@ void loop()
         if (iSerial.status.step == 0)
         {
           iSerial.resetModeTime();
+          disengageClutch(true);
           iSerial.status.step = 1;
         }
         else if (iSerial.status.step == 1) //PWR ON CLUTCH SOL B4 MOVING CLUTCH MOTOR
         {
-          if (dimitriCfg.hasClutchSolenoid)
+          if (disengageClutch())
           {
-            digitalWrite(PIN_CLUTCH_SOL, SOL_ON);
-            if (iSerial.modeTime() > dimitriCfg.preClutchMoveSolTimeMs)
-            {
-              iSerial.status.step = 2;
-            }
-          } else {
-            iSerial.status.step = 2;
-          }
-
-        }
-        else if (iSerial.status.step == 2) //MOVE CLUTCH TO DISENGAGED POSITION
-        {
-          motors[Motors::CLUTCH].jogUsingPower(100.0);
-          if (iSerial.modeTime() > TIME_CLUTCH_DISENGAGE)
-          {
+            iSerial.resetModeTime();
             iSerial.status.step = 10;
-          }
-          else if(iSerial.modeTime() > 3000)
-          {
-            triggerError(Errors::TOGGLE_MOTOR_DISENGAGE_MOVE_TIMED_OUT);
-          }
+          } 
 
-          if (dimitriCfg.hasClutchSolenoid)
-          {
-            if(iSerial.modeTime() < dimitriCfg.postClutchMoveSolTimeMs)
-            {
-              digitalWrite(PIN_CLUTCH_SOL, SOL_ON);
-            }
-            else
-            {
-              digitalWrite(PIN_CLUTCH_SOL, !SOL_ON);
-            }
-          }
         }
+
         else if (iSerial.status.step == 10)
         {
-          motors[Motors::CLUTCH].jogUsingPower(ClutchHoldingPwr);
+          disengageClutch();
           motors[Motors::LINEAR].moveAbs(shiftData.targetGear);
           if (motors[Motors::LINEAR].getState() == Motor::States::MOVING)
           {
@@ -500,7 +536,7 @@ void loop()
         }
         else if (iSerial.status.step == 11)
         {
-          motors[Motors::CLUTCH].jogUsingPower(ClutchHoldingPwr);
+          disengageClutch();
           if(gearChangeReq){
             iSerial.status.step = 10;
           }
@@ -600,6 +636,9 @@ void loop()
     // solenoids[0].setDebug(iSerial.debug);
   }
 }
+
+
+
 
 // checks the homeSw state and shiftType, prevents downshifting if homeSw detects target
 bool checkShiftTypeAndHomeSw(int shiftTypeReq)
@@ -1124,44 +1163,12 @@ void serializeFaultData(FaultData *msgPacket, char *data)
 // USED FOR MANUAL MODE - jogs motor at 100% pwr with shift switches
 void runClutchMotorManualMode(){
     if(inputs.ShiftUpSw){
-        //analogWrite(PIN_CLUTCH_PWM, 255);
-        //digitalWrite(PIN_CLUTCH_DIR, !motorCfgs[Motors::CLUTCH].invertDir);
-        motors[Motors::CLUTCH].enable();
-        if (dimitriCfg.hasClutchSolenoid)
-        { 
-          if (iSerial.modeTime() > TIME_CLUTCH_DISENGAGE)
-          {
-            motors[Motors::CLUTCH].jogUsingPower(ClutchHoldingPwr);
-          }
-          else if (iSerial.modeTime() < dimitriCfg.preClutchMoveSolTimeMs)
-          {
-            digitalWrite(PIN_CLUTCH_SOL, SOL_ON);
-          }
-          else if (iSerial.modeTime() < dimitriCfg.postClutchMoveSolTimeMs)
-          {
-            digitalWrite(PIN_CLUTCH_SOL, SOL_ON);
-            motors[Motors::CLUTCH].jogUsingPower(100);
-          } 
-          else 
-          {
-            digitalWrite(PIN_CLUTCH_SOL, !SOL_ON);
-            motors[Motors::CLUTCH].jogUsingPower(100);
-          }
-        }
-        else 
-        {
-          motors[Motors::CLUTCH].jogUsingPower(100);
-        }
-        //iSerial.debugPrintln("CLUTCH MOTOR jogging positive");
-    } else if(inputs.ShiftDownSw){
-        //analogWrite(PIN_CLUTCH_PWM, 255);
-        //digitalWrite(PIN_CLUTCH_DIR, motorCfgs[Motors::CLUTCH].invertDir);
-        //motors[Motors::CLUTCH].enable();
-        //motors[Motors::CLUTCH].jogUsingPower(-100);
-    } else {
-        //analogWrite(PIN_CLUTCH_PWM, 0);
-        //motors[Motors::CLUTCH].stop();
+      disengageClutch();
+    } 
+    else 
+    {
         motors[Motors::CLUTCH].disable();
+        disengageClutch(true);
         iSerial.resetModeTime();
         if(dimitriCfg.hasClutchSolenoid){
           digitalWrite(PIN_CLUTCH_SOL, !SOL_ON);
@@ -1170,33 +1177,8 @@ void runClutchMotorManualMode(){
 }
 
 void runLinearMotorManualMode(){
-    motors[Motors::CLUTCH].enable();
-    if (dimitriCfg.hasClutchSolenoid)
-    { 
-      if (iSerial.modeTime() > TIME_CLUTCH_DISENGAGE)
-      {
-        motors[Motors::CLUTCH].jogUsingPower(ClutchHoldingPwr);
-      }
-      else if (iSerial.modeTime() < dimitriCfg.preClutchMoveSolTimeMs)
-      {
-        digitalWrite(PIN_CLUTCH_SOL, SOL_ON);
-      }
-      else if (iSerial.modeTime() < dimitriCfg.postClutchMoveSolTimeMs)
-      {
-        digitalWrite(PIN_CLUTCH_SOL, SOL_ON);
-        motors[Motors::CLUTCH].jogUsingPower(100);
-      } 
-      else 
-      {
-        digitalWrite(PIN_CLUTCH_SOL, !SOL_ON);
-        motors[Motors::CLUTCH].jogUsingPower(100);
-      }
-    }
-    else 
-    {
-      motors[Motors::CLUTCH].jogUsingPower(100);
-    }
-    
+
+    disengageClutch();
    
     if(inputs.ShiftUpSw){
         //analogWrite(PIN_LINEAR_PWM, 255);
@@ -1233,179 +1215,43 @@ void runHomingRoutine(){
    if (iSerial.status.step == 0)
   {
     iSerial.resetModeTime();
-    iSerial.status.step = 2;
-  }
-
-  else if (iSerial.status.step == 2)
-  {
-    motors[Motors::CLUTCH].enable();
-    if(motors[Motors::CLUTCH].getState() == Motor::States::IDLE){
-      iSerial.debugPrintln("HOMING - Moving clutch motor to Engaged Position");
-      iSerial.resetModeTime();
-      iSerial.status.step = 5;
-    }
-  }
-  else if (iSerial.status.step == 5) //STARTING POSITION - could check the ClutchNegLimSw
-  {
-    motors[Motors::CLUTCH].stop();
-    if (iSerial.modeTime() > 0)
-    { 
-      iSerial.resetModeTime();
-      iSerial.debugPrintln("HOMING - Moving clutch motor to Disengaged Position");
-      iSerial.status.step = 6;
-    } else if (iSerial.modeTime() > 2000){
-      iSerial.debugPrintln("HOMING - Error finding Toggle Neg Lim Sw");
-      iSerial.status.step = 911; //error
-    }
-  }
-  else if (iSerial.status.step == 6) //pre solenoid
-  {
-    if (dimitriCfg.hasClutchSolenoid)
-    {
-      digitalWrite(PIN_CLUTCH_SOL, SOL_ON);
-      if (iSerial.modeTime() > dimitriCfg.preClutchMoveSolTimeMs)
-      {
-        iSerial.status.step = 10;
-      }
-    } else {
-      iSerial.status.step = 10;
-    }
+    disengageClutch(true);
+    iSerial.debugPrintln("HOMING - Moving clutch motor to Engaged Position");
+    iSerial.status.step = 10;
   }
   else if (iSerial.status.step == 10) //MOVING CLUTCH TO DISENGAGED POSITION
   {
-    motors[Motors::CLUTCH].jogUsingPower(100.0);
-    if(iSerial.modeTime() > TIME_CLUTCH_DISENGAGE)
-    {
+    if (disengageClutch()){
+      iSerial.status.step == 20;
       iSerial.resetModeTime();
-      iSerial.status.step = 20;
-    }else if (iSerial.modeTime() > 2000){
-      iSerial.debugPrintln("CLUTCH MOTOR Error While Moving to Disengaged Position");
-      iSerial.debugPrint("CLUTCH MOTOR Actual Position: ");
-      iSerial.debugPrintln(String(motors[Motors::CLUTCH].actualPosition));
-      iSerial.status.step = 911; //error
     }
-    if(dimitriCfg.hasClutchSolenoid){
-      if(iSerial.modeTime() < dimitriCfg.postClutchMoveSolTimeMs){
-        digitalWrite(PIN_CLUTCH_SOL, SOL_ON);
-      } else {
-        digitalWrite(PIN_CLUTCH_SOL, !SOL_ON);
-      }
-    }
+
   }
   else if (iSerial.status.step == 20) //ENABLE LINEAR MOTOR
   {
     motors[Motors::LINEAR].enable();
-    motors[Motors::CLUTCH].jogUsingPower(ClutchHoldingPwr);
-    if(motors[Motors::LINEAR].getState() == Motor::States::IDLE && motors[Motors::CLUTCH].getState() == Motor::States::JOGGING){
-      if (dimitriCfg.homingDirection == 1){
-        iSerial.debugPrintln("HOMING - Moving linear motor to positive lim sw");
-        iSerial.resetModeTime();
-        iSerial.status.step = 21;
-      } else {
-        iSerial.debugPrintln("HOMING - Moving linear motor to negative lim sw");
-        iSerial.resetModeTime();
-        iSerial.status.step = 51;
-      }
-      
-    }
-    if (dimitriCfg.hasClutchSolenoid)
-    {
-      digitalWrite(PIN_CLUTCH_SOL, !SOL_ON);
-    }
-  }
-  else if (iSerial.status.step == 21) //JOGGING LINEAR TO POSITIVE LIMIT SWITCH
-  {
-    motors[Motors::LINEAR].jogUsingPower(LinearHomingPwr);
-    if(inputs.LinearPosLimSw){
-      motors[Motors::LINEAR].stop();
-      iSerial.debugPrintln("HOMING - LINEAR MOTOR found limit switch");
+    disengageClutch();
+    if(motors[Motors::LINEAR].getState() == Motor::States::IDLE){
+      iSerial.debugPrintln("HOMING - Moving linear motor to negative lim sw");
       iSerial.resetModeTime();
-      iSerial.status.step = 25;
-    } else if (iSerial.modeTime() > 5000){
-      iSerial.debugPrintln("ERROR: LINEAR MOTOR timed out while trying to reach limit switch");
-      iSerial.debugPrint("LINEAR MOTOR Actual Position: ");
-      iSerial.debugPrintln(String(encoders[Motors::LINEAR].read()));
-      //iSerial.resetModeTime();
-      iSerial.status.step = 911;
-    }
-  }
-    //let the motor rest for 500ms then zero it
-  else if (iSerial.status.step == 25){
-    
-    if(iSerial.modeTime() > 500){
-      //encoders[Motors::LINEAR].write(0);
-      iSerial.debugPrint("LINEAR MOTOR Actual Position before zero(): ");
-      iSerial.debugPrintln(String(encoders[Motors::LINEAR].read()));
-      motors[Motors::LINEAR].zero();
-      tempInt = 0;
-      iSerial.debugPrint("LINEAR MOTOR Actual Position after zero(): ");
-      iSerial.debugPrintln(String(encoders[Motors::LINEAR].read()));
-      iSerial.resetModeTime();
-      iSerial.status.step = 26;
-    }
-  }
-  else if (iSerial.status.step == 26){
-    if (!inputs.LinearPosLimSw){
-      motors[Motors::LINEAR].stop();
-      if(motors[Motors::LINEAR].getState() == Motor::States::IDLE){
-        iSerial.debugPrintln("HOMING - Moving linear motor away from limit switch");
-        iSerial.resetModeTime();
-        iSerial.status.step = 28;
-      }
-    }
-    else if(iSerial.modeTime() > 5000){
-      motors[Motors::LINEAR].stop();
-      iSerial.debugPrintln("ERROR: LINEAR MOTOR timed out while trying to move away from lim sw");
-      iSerial.status.step = 911;
-    } 
-    else {
-      motors[Motors::LINEAR].jogUsingPower(-5.0);
-    }
-  }
-  else if (iSerial.status.step == 28){
-    motors[Motors::LINEAR].zero();
-    iSerial.status.step = 30;
-    //iSerial.debugPrint("LINEAR MOTOR Actual Position: ");
-    //iSerial.debugPrintln(String(encoders[Motors::LINEAR].read()));
-    
-  }
-  else if (iSerial.status.step == 30){
-    //analogWrite(PIN_CLUTCH_PWM, 0);
-    motors[Motors::LINEAR].moveAbs(-HOME_OFFSET);
-    if(motors[Motors::LINEAR].getState() != Motor::States::IDLE){
-      iSerial.debugPrintln("HOMING - Moving linear motor to 12th gear");
-      iSerial.resetModeTime();
-      iSerial.status.step = 31;
+      iSerial.status.step = 50;
     }
 
   }
-  else if (iSerial.status.step == 31){
-    if(motors[Motors::LINEAR].getState() == Motor::States::IDLE){
-      iSerial.resetModeTime();
-      iSerial.status.step = 32;
-    }
-  }
-  else if (iSerial.status.step == 32){
-    if(iSerial.modeTime() > 2000){
-      iSerial.debugPrintln("HOMING - setting linear motor position to be 12");
-      motors[Motors::LINEAR].setPosition(12.0);
-      shiftData.targetGear = 12;
-      iSerial.resetModeTime();
-      iSerial.status.step = 80;
-    }
-  }
+
+
   /////////////////////////////////////
   // HOMING TO NEG LIM SW
   ///////////////////////////////////////
-  else if (iSerial.status.step == 51) //MOVING LINEAR TO POSITIVE LIMIT SWITCH
+  else if (iSerial.status.step == 50) //MOVING LINEAR TO POSITIVE LIMIT SWITCH
   {
+    disengageClutch();
     if(iSerial.modeTime() <=  LinearNudgeTimeMsDuringHomingJog) {
       motors[Motors::LINEAR].jogUsingPower(-LinearNudgePower);
     } else {
       motors[Motors::LINEAR].jogUsingPower(-LinearHomingPwr);
     }
    
-    motors[Motors::CLUTCH].jogUsingPower(ClutchHoldingPwr);
     if(inputs.LinearNegLimSw){
       motors[Motors::LINEAR].stop();
       iSerial.debugPrintln("HOMING - LINEAR MOTOR found negative limit switch");
@@ -1424,7 +1270,7 @@ void runHomingRoutine(){
     
     if(iSerial.modeTime() > 500){
       //encoders[Motors::LINEAR].write(0);
-      motors[Motors::CLUTCH].jogUsingPower(ClutchHoldingPwr);
+      disengageClutch();
       iSerial.debugPrint("LINEAR MOTOR Actual Position before zero(): ");
       iSerial.debugPrintln(String(encoders[Motors::LINEAR].read()));
       motors[Motors::LINEAR].zero();
@@ -1436,6 +1282,7 @@ void runHomingRoutine(){
     }
   }
   else if (iSerial.status.step == 56){
+    disengageClutch();
     if (!inputs.LinearNegLimSw){
       motors[Motors::LINEAR].stop();
       if(motors[Motors::LINEAR].getState() == Motor::States::IDLE){
@@ -1454,6 +1301,7 @@ void runHomingRoutine(){
     }
   }
   else if (iSerial.status.step == 58){
+    disengageClutch();
     motors[Motors::LINEAR].zero();
     iSerial.status.step = 60;
     //iSerial.debugPrint("LINEAR MOTOR Actual Position: ");
@@ -1462,6 +1310,7 @@ void runHomingRoutine(){
   }
   else if (iSerial.status.step == 60){
     //analogWrite(PIN_CLUTCH_PWM, 0);
+    disengageClutch();
     motors[Motors::LINEAR].moveAbs(HOME_OFFSET);
     if(motors[Motors::LINEAR].getState() != Motor::States::IDLE){
       iSerial.debugPrintln("HOMING - Moving linear motor to 1st gear");
@@ -1471,12 +1320,14 @@ void runHomingRoutine(){
 
   }
   else if (iSerial.status.step == 61){
+    disengageClutch();
     if(motors[Motors::LINEAR].getState() == Motor::States::IDLE){
       iSerial.resetModeTime();
       iSerial.status.step = 62;
     }
   }
   else if (iSerial.status.step == 62){
+    disengageClutch();
     if(iSerial.modeTime() > 2000){
       iSerial.debugPrintln("HOMING - setting linear motor position to be 1");
       motors[Motors::LINEAR].setPosition(1.0);
@@ -1491,6 +1342,7 @@ void runHomingRoutine(){
   ///////////////////////
   else if (iSerial.status.step == 80) //MOVING LINEAR TO 1ST GEAR
   {
+    disengageClutch();
     motors[Motors::LINEAR].moveAbs(1.0);
     shiftData.targetGear = 1;
     if(motors[Motors::LINEAR].getState() != Motor::States::IDLE){
@@ -1501,6 +1353,7 @@ void runHomingRoutine(){
   }
   else if (iSerial.status.step == 81)
   {
+    disengageClutch();
     if(motors[Motors::LINEAR].getState() == Motor::States::IDLE && atTarget){
       iSerial.resetModeTime();
       //motors[Motors::LINEAR].setPosition(1.0);
@@ -1508,7 +1361,7 @@ void runHomingRoutine(){
       iSerial.status.step = 90;
     }
   }
-  else if (iSerial.status.step == 90)
+  else if (iSerial.status.step == 90) //MOVING CLUTCH TO ENGAGED POSITION
   {
     motors[Motors::CLUTCH].jogUsingPower(-100.0);
     if(iSerial.modeTime() > TIME_CLUTCH_IMPULSE_TO_ENGAGE)
@@ -1560,7 +1413,6 @@ void getCfg()
 {
   //dimitriCfg.operatingMode = OperatingModes::MANUAL_CLUTCH;
   dimitriCfg.hasClutchSolenoid = true;
-  dimitriCfg.preClutchMoveSolTimeMs = 0;
   dimitriCfg.postClutchMoveSolTimeMs = 100;
   dimitriCfg.homingDirection = -1;
   // dimitriCfg.autoReset = true;
@@ -1575,3 +1427,4 @@ void getCfg()
   // dimitriCfg.timeClutchEngage = 0;
   // dimitriCfg.homeOffset = -0.45;
 }
+
