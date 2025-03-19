@@ -47,8 +47,8 @@ const unsigned long TIME_CLUTCH_DISENGAGE = 200; //ms, time to wait after clutch
 const unsigned long TIME_CLUTCH_IMPULSE_TO_ENGAGE=100; //ms, time to move clutch motor from disengaged to engaged using impulse
 const unsigned long TIME_CLUTCH_ENGAGE = 0;    //ms, time to wait after clutch motor moves from disengaged to engaged using spring
 
-const double HOME_OFFSET = 0.0; // distance (measured in gears) to move away from limit switch in order to be in 1st Gear
-const OperatingModes OPERATING_MODE = OperatingModes::MANUAL_CLUTCH; // set to AUTO_DEBUG to run the system in debug mode
+const double HOME_OFFSET = 0.3; // distance (measured in gears) to move away from limit switch in order to be in 1st Gear
+const OperatingModes OPERATING_MODE = OperatingModes::MANUAL_CLUTCH; // set to AUTO to run the system in debug mode
 
 const bool AUTO_RESET = false; // if this is true, the system will automatically reset when inactive (no errors)
 const bool SHIFT_BUTTONS_DISABLED = false; // if this is true, the shift buttons will be disabled (ignored)
@@ -200,6 +200,7 @@ String jsonString = "";
 unsigned long lastUpdateUs = 0;
 
 const bool SOL_ON = true;
+StateManager clutchState;
 
 void setup()
 {
@@ -209,6 +210,7 @@ void setup()
   iSerial.THIS_DEVICE_ID = BIKE_MEGA_ID;
   iSerial.setAutoSendStatus(false); // status updates sent when mode changes
   iSerial.debug = true;
+  clutchState.SetDebug(iSerial.debug);
 
   iSerial.setNewMode(Modes::ABORTING);
   
@@ -252,7 +254,7 @@ void setup()
 
 }
 
-StateManager clutchState;
+
 
 // if reset is true, it resets the clutchState step to 0, otherwise run the clutchStateMachine
 bool disengageClutch(bool reset=false) 
@@ -303,6 +305,7 @@ bool disengageClutch(bool reset=false)
 
         case 1000: //DONE: HOLD CLUTCH AND HOLDING PWR TO KEEP IT IN DISENGAGED POSITION
             motors[Motors::CLUTCH].jogUsingPower(ClutchHoldingPwr);
+            digitalWrite(PIN_CLUTCH_SOL, !SOL_ON);
             break;
 
         default:
@@ -1216,7 +1219,7 @@ void runHomingRoutine(){
   {
     iSerial.resetModeTime();
     disengageClutch(true);
-    iSerial.debugPrintln("HOMING - Moving clutch motor to Engaged Position");
+    iSerial.debugPrintln("HOMING - Moving clutch motor to disengaged Position");
     iSerial.status.step = 10;
   }
   else if (iSerial.status.step == 10) //MOVING CLUTCH TO DISENGAGED POSITION

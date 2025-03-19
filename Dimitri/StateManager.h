@@ -49,7 +49,7 @@ public:
         Step = _step;
     }
 
-    // Get the time the current step has been active
+    // ms, Get the time the current step has been active
     unsigned long getStepActiveTime() const {
         return millis() - _stepStartTime;
     }
