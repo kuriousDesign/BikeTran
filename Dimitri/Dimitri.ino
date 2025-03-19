@@ -35,8 +35,6 @@ const int LinearNudgeTimeMsDuringHomingJog = 50;
 const double ClutchHoldingPwr = 25.0;
 const int clutchSolenoidJostleTimeMs = 20;
 
-
-
 //Motor::TuningParams LinearTuningParams = {0.0, 0.0, 0, 0.0};
 const double LinearKp = 500.0;  //@11.05VDC
 const double LinearKd = 0.0;
@@ -306,14 +304,13 @@ bool disengageClutch(bool reset=false)
         case 1000: //DONE: HOLD CLUTCH AND HOLDING PWR TO KEEP IT IN DISENGAGED POSITION
             motors[Motors::CLUTCH].jogUsingPower(ClutchHoldingPwr);
             digitalWrite(PIN_CLUTCH_SOL, !SOL_ON);
+            return true;
             break;
 
         default:
             break;
     }
   }
-
-  return clutchState.Step == 1000;
 }
 
 // int deleteMe = 0;
