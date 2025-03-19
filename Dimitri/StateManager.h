@@ -33,14 +33,16 @@ public:
     }
 
     void run() {
-        if (_step != _nextStep) {
-            _step = _nextStep;
+        if (FirstScan) {
             if(_debugEnabled) {
                 Serial.print("Step: ");
                 Serial.print(_step);
                 Serial.print(" - ");
                 Serial.println(_stepDescription);
             }
+        }
+        if (_step != _nextStep) {
+            _step = _nextStep;
             _stepStartTime = millis();
             FirstScan = true;
         } else {
