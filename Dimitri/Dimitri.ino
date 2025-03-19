@@ -1222,7 +1222,7 @@ void runHomingRoutine(){
   else if (iSerial.status.step == 10) //MOVING CLUTCH TO DISENGAGED POSITION
   {
     if (disengageClutch()){
-      iSerial.status.step == 20;
+      iSerial.status.step = 20;
       iSerial.resetModeTime();
     }
 
