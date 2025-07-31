@@ -288,9 +288,7 @@ bool disengageClutch(bool reset=false)
 
         case 20: // MOVE CLUTCH TO DISENGAGED POSITION
             motors[Motors::CLUTCH].jogUsingPower(100.0);
-            if (clutchState.getStepActiveTime() > TIME_CLUTCH_DISENGAGE) {
-                clutchState.transitionToStep(1000);
-            }
+
 
             if (dimitriCfg.hasClutchSolenoid) {
                 if (clutchState.getStepActiveTime() < dimitriCfg.postClutchMoveSolTimeMs) {
@@ -298,6 +296,11 @@ bool disengageClutch(bool reset=false)
                 } else {
                     digitalWrite(PIN_CLUTCH_SOL, !SOL_ON);
                 }
+            }
+
+            if (clutchState.getStepActiveTime() > TIME_CLUTCH_DISENGAGE) {
+                clutchState.transitionToStep(1000);
+                digitalWrite(PIN_CLUTCH_SOL, !SOL_ON);
             }
             break;
 
@@ -491,6 +494,7 @@ void loop()
       case Modes::IDLE:
         if (iSerial.status.step == 0)
         {
+          digitalWrite(PIN_CLUTCH_SOL, !SOL_ON);
           if (gearChangeReq)
           {
             shiftStartTimeMs=timeNow;
@@ -553,6 +557,7 @@ void loop()
         }
         else if (iSerial.status.step == 20)
         {
+          digitalWrite(PIN_CLUTCH_SOL, !SOL_ON);
           motors[Motors::CLUTCH].jogUsingPower(-100.0);
           if (iSerial.modeTime() > TIME_CLUTCH_IMPULSE_TO_ENGAGE)
           {
@@ -561,6 +566,7 @@ void loop()
         }
         else if (iSerial.status.step == 24) //MOVE CLUTCH TO ENGAGED POSITION: ALLOW CLUTCH TO SPRING RETURN TO ENGAGED POSITION
         {
+          digitalWrite(PIN_CLUTCH_SOL, !SOL_ON);
           motors[Motors::CLUTCH].stop();
           iSerial.resetModeTime();
           iSerial.status.step = 25;
@@ -568,6 +574,7 @@ void loop()
         }
         else if (iSerial.status.step == 25)
         {
+          digitalWrite(PIN_CLUTCH_SOL, !SOL_ON);
           if (gearChangeReq)
           {
             iSerial.resetModeTime();
