@@ -70,4 +70,5 @@ SafeString - by Matthew Ford (Library Manager)
 LoopTimer - included with SafeString
 jsonlib - by Justin Shaw (Library Manager)
 ArduinoJson - by Benoit Blanchon 
-Encoder - by Paul S
+Encoder - by Paul Stoffregen
+TimerOne - Jesse Tane
