@@ -21,6 +21,7 @@ enum OperatingModes
   MANUAL_CLUTCH = 1,
   MANUAL_LINEAR_P = 2,
   MANUAL_LINEAR_S = 3,
+  IO_CHECKOUT = 4
 };
 
 enum Events : int

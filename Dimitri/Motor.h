@@ -48,7 +48,7 @@ public:
         uint16_t nudgeTimeMs;   // ms
         double nudgePower;      //%
     };
-    Motor(uint8_t dirPin, uint8_t speedPin, Encoder *encoder, Cfg *cfg, bool simMode = false);
+    Motor(uint8_t dirPin, uint8_t speedPin, Encoder *encoder, Cfg *cfg, bool simMode = false, uint8_t dir2Pin = 255);
 
     bool isHomed = false;
     bool isEnabled = false;
@@ -133,6 +133,7 @@ private:
 
     Cfg *_cfg;
     uint8_t _dirPin;
+    uint8_t _dir2Pin; // used for dual direction motor boards, like L298N
     uint8_t _speedPin;
     Encoder *_encoder;
     int16_t _step;

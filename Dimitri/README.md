@@ -2,6 +2,14 @@
 This is the firmware to control the gear shifting for the demo model. 
 
 
+# TESTING PROCEDURE
+
+PRIMARY - 6.5mm width per gear
+SECONDARY - 6.0mm width per gear
+
+
+
+
 ## SSH into joe's dell
 ssh joeke@10.244.0.10
 pw: Samantha12

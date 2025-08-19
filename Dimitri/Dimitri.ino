@@ -20,7 +20,7 @@ enum Motors
 #include "Motor.h"
 #include "TimerOne.h"
 
-const OperatingModes OPERATING_MODE = OperatingModes::MANUAL_CLUTCH; // set to OperatingModes::AUTO to run the system in debug mode
+const OperatingModes OPERATING_MODE = OperatingModes::IO_CHECKOUT; // set to OperatingModes::AUTO to run the system in debug mode
 
 const double LinearHomingPwr = 100.0;
 const int LinearNudgeTimeMsDuringHomingJog = 50;
@@ -32,7 +32,7 @@ uint16_t LinearNudgeTimeMs = 4; // 15
 const double LinearNudgePower = 100.0;
 const double POSITION_CLUTCH_PEDALING = 0.0;   // deg
 const double POSITION_CLUTCH_SHIFTING = 228.0; // deg
-const double LINEAR_P_HOME_OFFSET = 0.3;       // units is gears, distance (measured in gears) to move away from limit switch in order to be in 1st Gear
+const double LINEAR_P_HOME_OFFSET = 6.3;       // units is gears, distance (measured in gears) to move away from limit switch in order to be in 1st Gear
 const double LINEAR_S_HOME_OFFSET = 0.3;       // units is gears, distance (measured in gears) to move away from limit switch in order to be in 1st Gear
 
 const unsigned long DELAY_LINEAR_MOTION_AFTER_CLUTCH_REACHES_SHIFT_POSITION_MS = 200; // ms, time to wait after clutch reaches shifting position before linear motor motion is allowed
@@ -40,41 +40,45 @@ const bool AUTO_RESET = false;                                                  
 const bool SHIFT_BUTTONS_DISABLED = false;                                            // if this is true, the shift buttons will be disabled (ignored)
 const bool SIM_MODE = false;                                                          // set to true to simulate motor behavior (encoders positions for now, TODO: simulate lim switches)
 
-//ISerial deleteSerial;
 ////////////////////////////////////////////////////
-// INPUTS
+// PINOUT
 ////////////////////////////////////////////////////
 
 // MEGA PWM PINS: 2,3,4,5,6,7,8,9,10,11,12,13,44,45,46
 // MEGA EXTERNAL INTERRUPTS FOR ENCODER A SIGNAL PINS: 2, 3, 18, 19, 20, 21 (B SIGNAL CAN USE NORMAL DIG INPUTS)
 
-// LINEAR MOTOR (S) SECONDARY - WIRED TO SHIELD MOTOR A - RED: mtr+, WHITE: mtr-, BLUE: encVCC, BLACK: encGND,  YELLOW: encA, GREEN: encB,
-#define PIN_LINEAR_S_PWM 3
-#define PIN_LINEAR_S_DIR 12
+// LINEAR MOTOR (P) PRIMARY - WIRED TO SHIELD MOTOR A - RED: mtr+, WHITE: mtr-, BLUE: encVCC, BLACK: encGND,  YELLOW: encA, GREEN: encB,
+#define PIN_LINEAR_P_PWM 3
+#define PIN_LINEAR_P_DIR 12
 
-// LINEAR MOTOR P(PRIMARY) - WIRED TO SHIELD MOTOR B - RED: mtr+, WHITE: mtr-, BLUE: encGND, BLACK: encVCC,  YELLOW: encA, GREEN: encB,
-// when motor has positive power, it moves the motor in the down shift direction
-#define PIN_LINEAR_P_PWM 11
-#define PIN_LINEAR_P_DIR 13
+// LINEAR MOTOR S (SECONDARY) - WIRED TO SHIELD MOTOR B - RED: mtr+, WHITE: mtr-, BLUE: encGND, BLACK: encVCC,  YELLOW: encA, GREEN: encB,
+#define PIN_LINEAR_S_PWM 11
+#define PIN_LINEAR_S_DIR 13
 
-// CLUTCH MOTOR - WIRED TO STANDALONE MOTOR BOARD
-// when motor has positive power, it moves the motor in the engaged direction
-#define PIN_CLUTCH_DIR 45 // was 12
-#define PIN_CLUTCH_PWM 44
+// CLUTCH MOTOR - WIRED TO STANDALONE MOTOR BOARD A
+#define PIN_CLUTCH_PWM 44     // --> wires to ENA pin of L298N driver board
+#define PIN_CLUTCH_DIR_IN1 45 // --> wires to IN1 of L298N driver board
+#define PIN_CLUTCH_DIR_IN2 46 // --> wires to IN2 of L298N driver board
 
-#define PIN_LINEAR_P_ENC_A 18 //
-#define PIN_LINEAR_P_ENC_B 19 //
-#define PIN_LINEAR_S_ENC_A 20 // black brown red orange
-#define PIN_LINEAR_S_ENC_B 52 //
+#define PIN_LINEAR_P_ENC_A 18 // yellow wire of enc
+#define PIN_LINEAR_P_ENC_B 19 // green wire of enc
 
-#define PIN_CLUTCH_ENC_A 21 // was 20   // black brown red orange
-#define PIN_CLUTCH_ENC_B 54 // was 21   //
-#define PIN_EINK_BIT0 22    // NOTE THAT PINS 22, 24, 26, & 28 ARE USED AS OUTPUTS FOR GEAR NUMBER DISPLAY ON E-INK
+#define PIN_LINEAR_S_ENC_A 20 // yellow wire of enc
+#define PIN_LINEAR_S_ENC_B 52 // green wire of enc
+
+#define PIN_CLUTCH_ENC_A 21 // yellow wire of enc??
+#define PIN_CLUTCH_ENC_B 54 // green wire of enc??
+
+#define PIN_EINK_BIT0 22 // NOTE THAT PINS 22, 24, 26, & 28 ARE USED AS OUTPUTS FOR GEAR NUMBER DISPLAY ON E-INK
+#define PIN_EINK_BIT1 24
+#define PIN_EINK_BIT2 26
+#define PIN_EINK_BIT3 28
 #define NUM_BITS 4
-#define PIN_CLUTCH_POS_LIM 41 // near 228 deg
-#define PIN_CLUTCH_NEG_LIM 43
-#define PIN_SHIFT_UP 51   // ORANGE WIRE ON SHIFTER
-#define PIN_SHIFT_DOWN 53 // RED WIRE ON SHIFTER
+
+#define PIN_CLUTCH_POS_LIM 30 // detects 228 deg
+#define PIN_CLUTCH_NEG_LIM 31 // detects 0 deg
+#define PIN_SHIFT_UP 32       // ORANGE WIRE ON SHIFTER
+#define PIN_SHIFT_DOWN 33     // RED WIRE ON SHIFTER
 
 #define PIN_CLUTCH_SOL -1 // not used
 
@@ -86,8 +90,6 @@ struct Inputs
   bool ClutchPosLimSw = false;
 };
 Inputs inputs;
-
-GearMap gearMap = GearMap();
 
 ////////////////////////////////////////////////////
 // OUTPUTS
@@ -182,11 +184,12 @@ Motor::Cfg motorCfgs[NUM_MOTORS] = {
 
 // NOTE: follow Motors enum for order below
 Motor motors[NUM_MOTORS] = {
-    Motor(PIN_CLUTCH_DIR, PIN_CLUTCH_PWM, &encoders[Motors::CLUTCH], &motorCfgs[Motors::CLUTCH], SIM_MODE),
+    Motor(PIN_CLUTCH_DIR_IN1, PIN_CLUTCH_PWM, &encoders[Motors::CLUTCH], &motorCfgs[Motors::CLUTCH], SIM_MODE, PIN_CLUTCH_DIR_IN2),
     Motor(PIN_LINEAR_P_DIR, PIN_LINEAR_P_PWM, &encoders[Motors::LINEAR_P], &motorCfgs[Motors::LINEAR_P], SIM_MODE),
     Motor(PIN_LINEAR_S_DIR, PIN_LINEAR_S_PWM, &encoders[Motors::LINEAR_S], &motorCfgs[Motors::LINEAR_S], SIM_MODE)};
 
 MotionData motionData;
+GearMap gearMap = GearMap();
 
 bool sw = false;
 int time_now;
@@ -248,7 +251,8 @@ void setup()
   pinMode(PIN_CLUTCH_NEG_LIM, INPUT_PULLUP);
   pinMode(PIN_SHIFT_UP, INPUT_PULLUP);
   pinMode(PIN_SHIFT_DOWN, INPUT_PULLUP);
-  pinMode(PIN_CLUTCH_DIR, OUTPUT);
+  pinMode(PIN_CLUTCH_DIR_IN1, OUTPUT);
+  pinMode(PIN_CLUTCH_DIR_IN2, OUTPUT);
   pinMode(PIN_CLUTCH_PWM, OUTPUT);
   pinMode(PIN_LINEAR_P_PWM, OUTPUT);
   pinMode(PIN_LINEAR_P_DIR, OUTPUT);
@@ -275,7 +279,7 @@ void setup()
   Timer1.initialize(UPDATE_TIME_US); // Initialize timer to trigger every 1000 microseconds
   Timer1.attachInterrupt(updateMotors);
   unsigned long timeNowMs = millis();
-  while (millis() - timeNowMs < 5000)
+  while (OperatingModes::IO_CHECKOUT)
   {
     readInputs();
     iSerial.debugPrint("state of clutch lim sw - PEDALING: ");
@@ -371,7 +375,9 @@ bool engageClutch(bool reset = false)
       if (abs(motors[Motors::CLUTCH].actualPosition - POSITION_CLUTCH_SHIFTING) < 5.0)
       {
         clutchState.transitionToStep(1);
-      } else {
+      }
+      else
+      {
         triggerError("ENGAGE_CLUTCH: position not within tolerance prior to moving to engaged position");
       }
       break;
@@ -672,6 +678,9 @@ void serializeFaultData(FaultData *msgPacket, char *data)
 // USED FOR MANUAL MODE - jogs motor at 100% pwr with shift switches
 void runClutchMotorManualMode()
 {
+  Serial.print("clutch motor position: ");
+  Serial.print(motors[Motors::CLUTCH].actualPosition);
+  Serial.println(" deg");
   if (inputs.ShiftUpSw)
   {
     // disengageClutch();
@@ -738,8 +747,7 @@ bool moveLinearMotorsToGear(int8_t targetGear, bool reset = false)
   return false;
 }
 
-
-void runLinearMotorManualMode()
+void runLinearMotorManualMode(uint8_t motorId)
 {
 
   bool clutchIsDisengaged = disengageClutch();
@@ -748,26 +756,26 @@ void runLinearMotorManualMode()
   {
     // analogWrite(PIN_LINEAR_P_PWM, 255);
     // digitalWrite(PIN_LINEAR_P_DIR, !motorCfgs[Motors::LINEAR].invertDir);
-    motors[Motors::LINEAR_P].enable();
-    motors[Motors::LINEAR_P].jogUsingPower(20.0);
+    motors[motorId].enable();
+    motors[motorId].jogUsingPower(20.0);
     Serial.print("position: ");
-    Serial.println(motors[Motors::LINEAR_P].actualPosition);
+    Serial.println(motors[motorId].actualPosition);
     // motors[Motors::LINEAR].moveAbs(11.0);
   }
   else if (inputs.ShiftDownSw && clutchIsDisengaged)
   {
     // analogWrite(PIN_LINEAR_P_PWM, 255);
     // digitalWrite(PIN_LINEAR_P_DIR, motorCfgs[Motors::LINEAR].invertDir);
-    motors[Motors::LINEAR_P].enable();
-    motors[Motors::LINEAR_P].jogUsingPower(-20.0);
+    motors[motorId].enable();
+    motors[motorId].jogUsingPower(-20.0);
     Serial.print("position: ");
-    Serial.println(motors[Motors::LINEAR_P].actualPosition);
+    Serial.println(motors[motorId].actualPosition);
     // motors[Motors::LINEAR].moveAbs(6.0);
   }
   else
   {
     // digitalWrite(PIN_LINEAR_P_PWM, LOW);
-    motors[Motors::LINEAR_P].stop();
+    motors[motorId].stop();
     // motors[Motors::LINEAR].disable();
   }
 }
@@ -1104,7 +1112,6 @@ void processRelPosCmd()
     iSerial.writeCmdWarning("could not parse position data");
   }
 }
-
 
 void processAbsPosCmd()
 {
@@ -1530,7 +1537,7 @@ void loop()
         }
       }
 
-      else if (iSerial.status.step == 10) //moving linear motors
+      else if (iSerial.status.step == 10) // moving linear motors
       {
         disengageClutch();
 
@@ -1568,13 +1575,26 @@ void loop()
       break;
 
     case Modes::MANUAL:
-      if (OPERATING_MODE == OperatingModes::MANUAL_CLUTCH)
+      if (iSerial.status.step == 0)
       {
-        runClutchMotorManualMode();
+        iSerial.debugPrintln("MANUAL MODE");
+        disengageClutch(true);
+        iSerial.status.step = 1;
       }
-      else if (OPERATING_MODE == OperatingModes::MANUAL_LINEAR_P)
+      else if (iSerial.status.step == 1)
       {
-        runLinearMotorManualMode();
+        switch (OPERATING_MODE)
+        {
+        case OperatingModes::MANUAL_CLUTCH:
+          runClutchMotorManualMode();
+          break;
+        case OperatingModes::MANUAL_LINEAR_P:
+          runLinearMotorManualMode(Motors::LINEAR_P);
+          break;
+        case OperatingModes::MANUAL_LINEAR_S:
+          runLinearMotorManualMode(Motors::LINEAR_S);
+          break;
+        }
       }
       break;
 
