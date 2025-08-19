@@ -20,7 +20,8 @@ enum Motors
 #include "Motor.h"
 #include "TimerOne.h"
 
-const OperatingModes OPERATING_MODE = OperatingModes::MANUAL_CLUTCH; // set to OperatingModes::AUTO to run the system in debug mode
+// OPERATING MODES: IO_CHECKOUT, MANUAL_CLUTCH, MANUAL_LINEAR_P, MANUAL_LINEAR_S, AUTO
+const OperatingModes OPERATING_MODE = OperatingModes::IO_CHECKOUT; // set to OperatingModes::AUTO to run the system in debug mode
 
 const double LinearHomingPwr = 100.0;
 const int LinearNudgeTimeMsDuringHomingJog = 50;
