@@ -368,7 +368,12 @@ bool engageClutch(bool reset = false)
     switch (clutchState.Step)
     {
     case 0:
-      clutchState.transitionToStep(1);
+      if (abs(motors[Motors::CLUTCH].actualPosition - POSITION_CLUTCH_SHIFTING) < 5.0)
+      {
+        clutchState.transitionToStep(1);
+      } else {
+        triggerError("ENGAGE_CLUTCH: position not within tolerance prior to moving to engaged position");
+      }
       break;
 
     case 1: // ENABLE CLUTCH MOTOR
@@ -380,7 +385,7 @@ bool engageClutch(bool reset = false)
       break;
 
     case 10: // MOVE MOTOR TO PEDALING POSITION (CFG PARAM)
-      motors[Motors::CLUTCH].moveAbs(POSITION_CLUTCH_PEDALING);
+      motors[Motors::CLUTCH].moveAbs(POSITION_CLUTCH_PEDALING + 360.0);
 
       if (motors[Motors::CLUTCH].getState() == Motor::States::MOVING)
       {
@@ -433,6 +438,7 @@ bool engageClutch(bool reset = false)
   }
 }
 
+// Sets the clutch motor position to the nearest rollover position around 0
 bool setClutchRolloverPosition()
 {
   double newPosition = fmod(motors[Motors::CLUTCH].actualPosition, 360.0);
@@ -812,6 +818,23 @@ bool runHomingRoutineClutchMotor(bool reset = false)
       {
         clutchMotorHoming.transitionToStep(1000);
       }
+      break;
+    case 20:
+      motors[Motors::CLUTCH].moveAbs(POSITION_CLUTCH_PEDALING);
+      if (motors[Motors::CLUTCH].getState() == Motor::States::MOVING)
+      {
+        clutchMotorHoming.transitionToStep(21);
+      }
+      break;
+    case 21:
+      if (motors[Motors::CLUTCH].getState() == Motor::States::IDLE)
+      {
+        clutchMotorHoming.transitionToStep(22);
+      }
+      break;
+    case 22:
+      setClutchRolloverPosition();
+      clutchMotorHoming.transitionToStep(1000);
       break;
     case 1000:
       clutchMotorHoming.StepDescription("Clutch motor is now homed");
