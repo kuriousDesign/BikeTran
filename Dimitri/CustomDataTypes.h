@@ -15,6 +15,14 @@ enum Modes : int32_t //
     MANUAL = 1100,
 };
 
+enum OperatingModes
+{
+  AUTO = 0,
+  MANUAL_CLUTCH = 1,
+  MANUAL_LINEAR_P = 2,
+  MANUAL_LINEAR_S = 3,
+};
+
 enum Events : int
 {
     NONE_EVENT = 0,
@@ -51,7 +59,7 @@ struct ShiftData
     //int16_t startingPosition = 0;
 };
 
-#define NUM_DIAGNOSTICS_ARRAY 900
+#define NUM_DIAGNOSTICS_ARRAY 100
 struct DiagnosticData
 {
     int16_t numOfDataPoints;
@@ -68,22 +76,22 @@ struct DiagnosticData
 struct FaultData
 {
     bool present = false;
-    uint8_t list[FAULT_DATA_LIST_LENGTH];
+    String list[FAULT_DATA_LIST_LENGTH];
 };
 
-enum Errors : uint8_t //
-{
-    NONE_ERROR = 0,
-    CONTROLLER_SHIFT_TIMED_OUT = 1,
-    CONTROLLER_FAULT_DURING_HOMING = 2,
-    HOMING_NUDGE_RETRIES_EXCEEDED = 3,
-    ENCODER_MISREAD_COUNT_EXCEEDED = 4,
-    MOTOR_NOT_AT_TARGET_WHILE_IDLE = 5,
-    TOGGLE_MOTOR_DISENGAGE_MOVE_TIMED_OUT = 6,
-    LINEAR_SHIFT_MOVE_TIMED_OUT = 7,
-    TOGGLE_MOTOR_ENGAGE_MOVE_TIMED_OUT = 8,
-    HOMING_ROUTINE_ERROR = 50, //reserved 51- 59 for homing errors
-};
+// enum Errors : uint8_t //
+// {
+//     NONE_ERROR = 0,
+//     CONTROLLER_SHIFT_TIMED_OUT = 1,
+//     CONTROLLER_FAULT_DURING_HOMING = 2,
+//     HOMING_NUDGE_RETRIES_EXCEEDED = 3,
+//     ENCODER_MISREAD_COUNT_EXCEEDED = 4,
+//     MOTOR_NOT_AT_TARGET_WHILE_IDLE = 5,
+//     TOGGLE_MOTOR_DISENGAGE_MOVE_TIMED_OUT = 6,
+//     LINEAR_SHIFT_MOVE_TIMED_OUT = 7,
+//     TOGGLE_MOTOR_ENGAGE_MOVE_TIMED_OUT = 8,
+//     HOMING_ROUTINE_ERROR = 50, //reserved 51- 59 for homing errors
+// };
 
 enum Warnings : uint8_t //
 {

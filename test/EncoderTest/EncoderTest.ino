@@ -32,13 +32,13 @@
 
 enum Motors {
   TOGGLE=0,
-  LINEAR=1,
+  LINEAR_P=1,
 };
 
 // ENCODERS
 Encoder encoders[NUM_MOTORS] = {
   Encoder(PIN_TOGGLE_ENC_A, PIN_TOGGLE_ENC_B),
-  Encoder(PIN_LINEAR_ENC_A, PIN_LINEAR_ENC_B) //14PPR Of the motor and gear ratio of 1:50 and 1/2 rev per index, but empiracally found 767 counts per index
+  Encoder(PIN_LINEAR_A_ENC_A, PIN_LINEAR_A_ENC_B) //14PPR Of the motor and gear ratio of 1:50 and 1/2 rev per index, but empiracally found 767 counts per index
 };
 
 void setup(){

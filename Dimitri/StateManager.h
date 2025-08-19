@@ -8,6 +8,7 @@ private:
     int _step = -1;
     int _nextStep = 0;
     bool _debugEnabled = false;
+    bool _errorsPresent = false;
 
 
     unsigned long _stepStartTime = 0;
@@ -17,6 +18,7 @@ public:
     // Read-only property
     int Step; 
     bool FirstScan;
+    bool ErrorsPresent;
 
     void SetDebug(bool enable) {
         _debugEnabled = enable;
@@ -32,7 +34,20 @@ public:
         _stepStartTime = millis();
     }
 
+    void triggerError(String errorMessage) {
+        if (_debugEnabled) {
+            Serial.print("Error: ");
+            Serial.println(errorMessage);
+        }
+        _errorsPresent = true;
+    }
+
+    void clearErrors() {
+        _errorsPresent = false;
+    }
+
     void run() {
+        ErrorsPresent = _errorsPresent;
         if (FirstScan) {
             if(_debugEnabled) {
                 Serial.print("Step: ");

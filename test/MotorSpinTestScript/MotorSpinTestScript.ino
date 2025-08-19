@@ -80,12 +80,12 @@ void runToggleMotor(){
 
 void runLinearMotor(){
     if(digitalRead(PIN_SHIFT_UP) == LOW){
-        analogWrite(PIN_LINEAR_PWM, 200);
+        analogWrite(PIN_LINEAR_A_PWM, 200);
         digitalWrite(PIN_LINEAR_DIR, HIGH);
     } else if(digitalRead(PIN_SHIFT_DOWN) == LOW){
-        analogWrite(PIN_LINEAR_PWM, 200);
+        analogWrite(PIN_LINEAR_A_PWM, 200);
         digitalWrite(PIN_LINEAR_DIR, LOW);
     } else {
-        digitalWrite(PIN_LINEAR_PWM, LOW);
+        digitalWrite(PIN_LINEAR_A_PWM, LOW);
     }
 }

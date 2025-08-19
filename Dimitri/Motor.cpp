@@ -2,6 +2,7 @@
 #include <Encoder.h>
 #include <TimerOne.h>
 #include <Arduino.h>
+#include "StateManager.h"
 // Constructor
 Motor::Motor(uint8_t dirPin, uint8_t speedPin, Encoder* encoder, Cfg* cfg, bool simMode)
     : _dirPin(dirPin), _speedPin(speedPin), _encoder(encoder), _cfg(cfg), _simMode(simMode) {
@@ -25,10 +26,11 @@ void Motor::run() {
         _firstScan = false;
     }
 
-        // Update these properties that are set by the update function
+    // Update these properties that are set by the update function
     isStill = _isStill;
     atPositionAndStill = _atPositionAndStill;
     atPosition = _atPosition;
+    isHomed = _isHomed;
 
     switch (_state) {
         case States::KILLED:
@@ -54,6 +56,9 @@ void Motor::run() {
                 _nextState = States::JOGGING;
             } else if (_holdReq) {
                 _nextState = States::HOLD_POSITION;
+            } else if (_homeReq) {
+                homeToHardstop(_cfg->homingDir,true);
+                _nextState = States::HOMING;
             }
             break;
         case States::JOGGING:
@@ -81,7 +86,25 @@ void Motor::run() {
             }
             break;
         case States::HOLD_POSITION:
+            _outputPower = pdControl();
             break;
+
+        case States::HOMING:
+            switch(_cfg->homingType) {
+                case Motor::HomingType::LIMIT_SWITCH:
+                    // TODO: not implemented yet
+                    break;
+                case Motor::HomingType::HARDSTOP:
+                    if (homeToHardstop(_cfg->homingDir)) {
+                        _isHomed = true;
+                        _nextState = States::IDLE;
+                    } else {
+                        _isHomed = false;
+                    }
+                    break;
+            }
+            break;
+
         case States::STOPPING:
             targetPower = 0.0;
             _outputPower = 0.0; //TODO: add deceleration based on cfg params and current velocity
@@ -117,13 +140,70 @@ void Motor::run() {
 
     // RESET ALL REQUESTS
     _stopReq = false;
-    _homingReq = false;
+    _homeReq = false;
     _moveAbsReq = false;
     _jogReq = false;
     _holdReq = false;
     _zeroReq = false;
     _enableReq = false;
     _disableReq = false;
+}
+
+
+bool Motor::homeToHardstop(int8_t dir, bool reset=false) {
+    static double max_position = 0.0;
+    _outputPower = 0.0;
+    if (reset) {
+        _isHomed = false;
+        if (dir != HomingDir::NEGATIVE && dir != HomingDir::POSITIVE) {
+            debugPrintln("Invalid homing direction");
+            _homingState.triggerError("Invalid homing direction: " + String(dir));
+        } else {
+            _homingState.transitionToStep(0);
+        }
+    } else {
+        switch(_homingState.Step) {
+            case 0: _homingState.StepDescription("Initializing homing sequence");
+                _isHomed = false;
+                zero();
+                max_position = actualPosition;
+                _homingState.transitionToStep(10);
+                break;
+            case 10: _homingState.StepDescription("Moving towards hard stop");
+                _outputPower = dir*_homingPwr;
+                if ((dir > 0 && actualPosition > max_position) || (dir < 0 && actualPosition < max_position)) {
+                    max_position = actualPosition;
+                    _homingState.transitionToStep(11);
+                } else if (_homingState.getStepActiveTime() > 1000) {
+                    debugPrintln("Hardstop found");
+                    _homingState.transitionToStep(20);
+                }
+                break;
+            case 11: _homingState.StepDescription("Resetting step time");
+                _outputPower = dir*_homingPwr;
+                _homingState.transitionToStep(10);
+                break;
+            case 20: _homingState.StepDescription("Setting position");
+                _outputPower = dir*_homingPwr;
+                setPosition(_cfg->homeOffsetFromZero);
+                _homingState.transitionToStep(30);
+            case 30: _homingState.StepDescription("Removing power");
+                _outputPower = 0.0;
+                debugPrintln("Homing complete");
+                _homingState.transitionToStep(1000);
+                break;
+            case 1000: _homingState.StepDescription("Homing complete");
+                _outputPower = 0.0;
+                _isHomed = true;
+                return true;
+                break;
+            case 911: //Error
+                _outputPower = 0.0;
+                break;
+        }
+    }
+
+    return false;
 }
 
 void Motor::setOutputs(){
@@ -152,18 +232,30 @@ void Motor::setOutputs(){
 
 bool Motor::zero() {
     _encoder->write(0);
+    updatePosition();
     return true;
 }
 
+bool Motor::home() {
+    if (_state == States::IDLE) {
+        _homeReq = true;
+        return true;
+    }
+    return false;
+}
+
 bool Motor::setPosition(double position) {
+    double diff = position - actualPosition;
     int32_t pulses = round(position*_cfg->pulsesPerUnit);
     _encoder->write(pulses*(_cfg->invertEncoderDir ? -1 : 1));
-    for(int i = 0; i < NUM_FILTER_POINTS; i++) {
-        lastPositions[i] = position;
-        lastErrors[i] = targetPosition - position;
-        sumErrors = abs(targetPosition - position)*double(NUM_FILTER_POINTS);
-    }
+    reconditionFilteredData(diff);
     return true;
+}
+
+void Motor::reconditionFilteredData(double diff) {
+    for (int i = 0; i < NUM_FILTER_POINTS; i++) {
+        lastPositions[i] += diff;
+    }
 }
 
 bool Motor::moveAbs(double position) {
@@ -317,6 +409,23 @@ void Motor::updateNew() {
 }
 */
 
+void Motor::updatePosition(){
+ // Read the encoder and scale to units
+    int32_t dir = _cfg->invertEncoderDir ? -1 : 1;
+    actualEncoderPulses = _encoder->read() * dir;
+    actualPosition = double(actualEncoderPulses) / _cfg->pulsesPerUnit;
+    if(_cfg->encoderRollover) {
+        double range = _cfg->softLimitPositive - _cfg->softLimitNegative;
+        actualPosition = actualPosition - range*round(actualPosition / range);
+        while (actualPosition < _cfg->softLimitNegative) {
+            actualPosition += range;
+        }
+        while (actualPosition >= _cfg->softLimitPositive) {
+            actualPosition -= range;
+        }
+    }
+}
+
 void Motor::update() {
     unsigned long currentTime = micros();
     unsigned long delataTime = currentTime - lastTimes[_prevIndexFilter];
@@ -330,11 +439,9 @@ void Motor::update() {
         dTime = 1000*NUM_FILTER_POINTS; // just make it non-zero and non-negative
     }
 
+    updatePosition();
 
-    // Read the encoder and scale to units
-    int32_t dir = _cfg->invertEncoderDir ? -1 : 1;
-    actualEncoderPulses = _encoder->read() * dir;
-    actualPosition = double(actualEncoderPulses) / _cfg->pulsesPerUnit;
+   
     double dPosition = actualPosition - lastPositions[_indexFilter];
     lastPositions[_indexFilter] = actualPosition;
     error = targetPosition - actualPosition;

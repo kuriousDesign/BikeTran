@@ -29,7 +29,7 @@ struct Inputs
 {
   bool ShiftDownSw = false;
   bool ShiftUpSw = false;
-  bool ToggleNegLimSw = false;
+  bool ClutchNegLimSw = false;
   bool LinearPosLimSw = false;
   uint16_t ToggleCurrent = 0;
   uint16_t LinearCurrent = 0;
@@ -52,11 +52,11 @@ void readInputs()
     Serial.print("Shift Down Switch: ");
     Serial.println(inputs.ShiftDownSw);
   }
-  inputs.ToggleNegLimSw = !digitalRead(PIN_TOGGLE_NEG_LIM);
-    if (inputs.ToggleNegLimSw != lastInputs.ToggleNegLimSw || firstScan)
+  inputs.ClutchNegLimSw = !digitalRead(PIN_TOGGLE_NEG_LIM);
+    if (inputs.ClutchNegLimSw != lastInputs.ClutchNegLimSw || firstScan)
     {
         Serial.print("Toggle Negative Limit Switch: ");
-        Serial.println(inputs.ToggleNegLimSw);
+        Serial.println(inputs.ClutchNegLimSw);
     }
   inputs.LinearPosLimSw = !digitalRead(PIN_LINEAR_POS_LIM);
     if (inputs.LinearPosLimSw != lastInputs.LinearPosLimSw || firstScan)
