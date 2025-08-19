@@ -4,8 +4,8 @@
 #include <Arduino.h>
 #include "StateManager.h"
 // Constructor
-Motor::Motor(uint8_t dirPin, uint8_t speedPin, Encoder *encoder, Cfg *cfg, bool simMode, uint8_t dir2Pin = 255)
-    : _dirPin(dirPin), _speedPin(speedPin), _encoder(encoder), _cfg(cfg), _simMode(simMode), _dir2Pin(dir2Pin)
+Motor::Motor(uint8_t dirPin, uint8_t speedPin, Encoder *encoder, Cfg *cfg, bool simMode, uint8_t dir2Pin = DUMMY_PIN, uint8_t homeSwPin = DUMMY_PIN)
+    : _dirPin(dirPin), _speedPin(speedPin), _encoder(encoder), _cfg(cfg), _simMode(simMode), _dir2Pin(dir2Pin), _homeSwPin(homeSwPin)
 {
     init();
 }
@@ -72,6 +72,7 @@ void Motor::run()
         else if (_homeReq)
         {
             homeToHardstop(_cfg->homingDir, true);
+            homeToSwitch(_cfg->homingDir, Sensors::HOME_SW, true);
             _nextState = States::HOMING;
         }
         break;
@@ -117,15 +118,16 @@ void Motor::run()
         case Motor::HomingType::LIMIT_SWITCH:
             // TODO: not implemented yet
             break;
-        case Motor::HomingType::HARDSTOP:
-            if (homeToHardstop(_cfg->homingDir))
+        case Motor::HomingType::HOME_SWITCH:
+            if (homeToSwitch(_cfg->homingDir, Sensors::HOME_SW) && _isHomed)
             {
-                _isHomed = true;
                 _nextState = States::IDLE;
             }
-            else
+            break;
+        case Motor::HomingType::HARDSTOP:
+            if (homeToHardstop(_cfg->homingDir) && _isHomed)
             {
-                _isHomed = false;
+                _nextState = States::IDLE;
             }
             break;
         }
@@ -192,6 +194,7 @@ bool Motor::homeToHardstop(int8_t dir, bool reset = false)
         {
             debugPrintln("Invalid homing direction");
             _homingState.triggerError("Invalid homing direction: " + String(dir));
+            _homingState.transitionToStep(911);
         }
         else
         {
@@ -254,12 +257,94 @@ bool Motor::homeToHardstop(int8_t dir, bool reset = false)
     return false;
 }
 
+bool Motor::homeToSwitch(int8_t searchDir, Sensors sensorId, bool reset)
+{
+    static double recorded_position = 0.0;
+    _outputPower = 0.0;
+    if (reset)
+    {
+        _isHomed = false;
+        if (searchDir != HomingDir::NEGATIVE && searchDir != HomingDir::POSITIVE)
+        {
+            debugPrintln("Invalid homing direction");
+            _homingState.triggerError("Invalid homing direction: " + String(searchDir));
+            _homingState.transitionToStep(911);
+        }
+        else
+        {
+            _homingState.transitionToStep(0);
+        }
+    }
+    else
+    {
+        switch (_homingState.Step)
+        {
+        case 0:
+            _homingState.StepDescription("Initializing homing sequence");
+            _isHomed = false;
+            zero();
+            recorded_position = 0.0;
+            _homingState.transitionToStep(10);
+            break;
+        case 10:
+            _homingState.StepDescription("Searching for sensor");
+
+            if (sensors[sensorId])
+            {
+                debugPrintln("Sensor found");
+                _homingState.transitionToStep(20);
+            }
+            else
+            {
+                _outputPower = searchDir * _homingPwr;
+            }
+            break;
+
+        case 20:
+            _homingState.StepDescription("Moving off sensor");
+            _outputPower = searchDir * _homingPwr;
+            if (!sensors[sensorId])
+            {
+                debugPrintln("Sensor no longer triggered");
+                _homingState.transitionToStep(30);
+            }
+            break;
+        case 30:
+            _homingState.StepDescription("slowly going back to trigger sensor and record position");
+            _outputPower = -searchDir * _homingPwr * 0.5;
+            if (!sensors[sensorId])
+            {
+                debugPrintln("recorded position");
+                recorded_position = actualPosition;
+                _homingState.transitionToStep(31);
+            }
+            break;
+        case 31:
+            if (_homingState.getStepActiveTime() > 1500)
+            {
+                _homingState.StepDescription("Letting motor settle and then setting recorded position");
+                double adjustedSetPosition = (actualPosition - recorded_position) + _cfg->homeOffsetFromZero;
+                setPosition(adjustedSetPosition);
+                _homingState.transitionToStep(1000);
+            }
+        case 1000:
+            _homingState.StepDescription("Homing complete");
+            _outputPower = 0.0;
+            _isHomed = true;
+            debugPrintln("Homing complete");
+            return true;
+            break;
+        }
+    }
+    return false;
+}
+
 void Motor::setOutputs()
 {
     if (_outputPower > 0.0)
     {
         digitalWrite(_dirPin, !_cfg->invertMotorDir);
-        if (_dir2Pin != 255)
+        if (_dir2Pin != DUMMY_PIN)
         {
             digitalWrite(_dir2Pin, _cfg->invertMotorDir);
         }
@@ -267,7 +352,7 @@ void Motor::setOutputs()
     else if (_outputPower < 0.0)
     {
         digitalWrite(_dirPin, _cfg->invertMotorDir);
-        if (_dir2Pin != 255)
+        if (_dir2Pin != DUMMY_PIN)
         {
             digitalWrite(_dir2Pin, !_cfg->invertMotorDir);
         }
@@ -275,7 +360,7 @@ void Motor::setOutputs()
     else
     {
         digitalWrite(_dirPin, false);
-        if (_dir2Pin != 255)
+        if (_dir2Pin != DUMMY_PIN)
         {
             digitalWrite(_dir2Pin, false);
         }
@@ -396,13 +481,25 @@ void Motor::init()
 {
     pinMode(_dirPin, OUTPUT);
     pinMode(_speedPin, OUTPUT);
-    if (_dir2Pin != 255)
+    if (_dir2Pin != DUMMY_PIN)
     {
         pinMode(_dir2Pin, OUTPUT);
+    }
+    if (_homeSwPin != DUMMY_PIN)
+    {
+        pinMode(_homeSwPin, INPUT_PULLUP);
     }
 
     // Timer1.initialize(_scanTimeUs); // Initialize timer to trigger every 1000 microseconds
     // Timer1.attachInterrupt(update);
+}
+
+bool *Motor::updateSensors()
+{
+    sensors[Sensors::HOME_SW] = !digitalRead(_homeSwPin);
+    sensors[Sensors::LIMIT_SW_POS] = false; //! digitalRead(_limitSwPosPin);
+    sensors[Sensors::LIMIT_SW_NEG] = false; //! digitalRead(_limitSwNegPin);
+    return sensors;
 }
 
 double Motor::pdControl()
@@ -527,6 +624,7 @@ void Motor::updatePosition()
 
 void Motor::update()
 {
+    //debugPrintln(_cfg->name + "motor " + " - Update");
     unsigned long currentTime = micros();
     unsigned long delataTime = currentTime - lastTimes[_prevIndexFilter];
     if (delataTime <= 0)
@@ -542,6 +640,7 @@ void Motor::update()
     }
 
     updatePosition();
+    updateSensors();
 
     double dPosition = actualPosition - lastPositions[_indexFilter];
     lastPositions[_indexFilter] = actualPosition;

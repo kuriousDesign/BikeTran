@@ -26,6 +26,15 @@ public:
         POSITIVE = 1
     };
 
+    enum Sensors : uint8_t
+    {
+        HOME_SW = 0,
+        LIMIT_SW_POS = 1,
+        LIMIT_SW_NEG = 2
+    };
+
+    static const uint8_t DUMMY_PIN = 255;
+
     struct Cfg
     {
         String name;
@@ -48,12 +57,14 @@ public:
         uint16_t nudgeTimeMs;   // ms
         double nudgePower;      //%
     };
-    Motor(uint8_t dirPin, uint8_t speedPin, Encoder *encoder, Cfg *cfg, bool simMode = false, uint8_t dir2Pin = 255);
+    Motor(uint8_t dirPin, uint8_t speedPin, Encoder *encoder, Cfg *cfg, bool simMode = false, uint8_t dir2Pin = DUMMY_PIN, uint8_t homeSwPin = DUMMY_PIN);
 
     bool isHomed = false;
     bool isEnabled = false;
     bool atPositionAndStill; // motor position is near target position and is still
     bool atPosition;         // motor position is near target position
+
+    bool* sensors;
 
     bool isStill; // motor velocity is near zero
     double actualPosition;
@@ -74,6 +85,7 @@ public:
     };
     int16_t getState();
     double getOutputPower();
+   
 
     bool zero();
     bool setPosition(double position);
@@ -127,13 +139,16 @@ private:
     void checkIsNudging(bool isJogging = false);
     double pdControl();
     bool homeToHardstop(int8_t dir, bool reset=false);
+    bool homeToSwitch(int8_t searchDir, Sensors sensorId, bool reset=false);
     void setOutputs();
     void updatePosition();
     void reconditionFilteredData(double diff);
+    bool* updateSensors();
 
     Cfg *_cfg;
     uint8_t _dirPin;
     uint8_t _dir2Pin; // used for dual direction motor boards, like L298N
+    uint8_t _homeSwPin;
     uint8_t _speedPin;
     Encoder *_encoder;
     int16_t _step;

@@ -1,5 +1,5 @@
-#define SCAN_TIME_US 5000   // how frequently the loop updates
-#define UPDATE_TIME_US 1000 // time that the motor velocities are updated
+#define SCAN_TIME_US 5000  // how frequently the loop updates
+#define UPDATE_TIME_US 350 // time that the motor velocities are updated, motor run() are called at half this rate
 #define NUM_MOTORS 3
 
 enum Motors
@@ -20,7 +20,7 @@ enum Motors
 #include "Motor.h"
 #include "TimerOne.h"
 
-const OperatingModes OPERATING_MODE = OperatingModes::IO_CHECKOUT; // set to OperatingModes::AUTO to run the system in debug mode
+const OperatingModes OPERATING_MODE = OperatingModes::MANUAL_CLUTCH; // set to OperatingModes::AUTO to run the system in debug mode
 
 const double LinearHomingPwr = 100.0;
 const int LinearNudgeTimeMsDuringHomingJog = 50;
@@ -113,10 +113,10 @@ const double CLUTCH_PULSES_PER_UNIT = 780.0 / 180.0;
 const double LINEAR_PULSES_PER_UNIT = 14.0 / 11.0 * 2.0 * 8600.0 / (double(NUM_GEARS) - 1.0); // 9200 is the max position, 488 is the min position
 
 Motor::Cfg clutchMotorCfg = {
-  name : "clutch",                              // name
-  homingDir : Motor::HomingDir::NEGATIVE,       // homing direction
-  homingType : Motor::HomingType::LIMIT_SWITCH, // homing type
-  homeOffsetFromZero : 0.0,                     // home offset from zero
+  name : "clutch",                             // name
+  homingDir : Motor::HomingDir::POSITIVE,      // homing direction
+  homingType : Motor::HomingType::HOME_SWITCH, // homing type
+  homeOffsetFromZero : 0.0,                    // home offset from zero
   unit : "deg",
   pulsesPerUnit : CLUTCH_PULSES_PER_UNIT, // unit and pulses per unit
   maxVelocity : 1000.0,                   // max velocity
@@ -184,7 +184,7 @@ Motor::Cfg motorCfgs[NUM_MOTORS] = {
 
 // NOTE: follow Motors enum for order below
 Motor motors[NUM_MOTORS] = {
-    Motor(PIN_CLUTCH_DIR_IN1, PIN_CLUTCH_PWM, &encoders[Motors::CLUTCH], &motorCfgs[Motors::CLUTCH], SIM_MODE, PIN_CLUTCH_DIR_IN2),
+    Motor(PIN_CLUTCH_DIR_IN1, PIN_CLUTCH_PWM, &encoders[Motors::CLUTCH], &motorCfgs[Motors::CLUTCH], SIM_MODE, PIN_CLUTCH_DIR_IN2, PIN_CLUTCH_NEG_LIM),
     Motor(PIN_LINEAR_P_DIR, PIN_LINEAR_P_PWM, &encoders[Motors::LINEAR_P], &motorCfgs[Motors::LINEAR_P], SIM_MODE),
     Motor(PIN_LINEAR_S_DIR, PIN_LINEAR_S_PWM, &encoders[Motors::LINEAR_S], &motorCfgs[Motors::LINEAR_S], SIM_MODE)};
 
@@ -269,29 +269,31 @@ void setup()
   //   digitalWrite(PIN_CLUTCH_SOL, !SOL_ON);
   // }
 
-  // motors[Motors::CLUTCH].setDebug(true);
+  motors[Motors::CLUTCH].setDebug(false);
   motors[Motors::LINEAR_P].setDebug(false);
   motors[Motors::LINEAR_S].setDebug(false);
 
   shiftData.targetGear = 0;
   lastUpdateUs = micros();
 
-  Timer1.initialize(UPDATE_TIME_US); // Initialize timer to trigger every 1000 microseconds
-  Timer1.attachInterrupt(updateMotors);
   unsigned long timeNowMs = millis();
-  while (OperatingModes::IO_CHECKOUT)
+  while (OPERATING_MODE == OperatingModes::IO_CHECKOUT)
   {
+    Serial.println("OPERATING MODE: IO_CHECKOUT");
+    iSerial.debug = true;
     readInputs();
-    iSerial.debugPrint("state of clutch lim sw - PEDALING: ");
-    iSerial.debugPrintln(String(inputs.ClutchNegLimSw));
-    iSerial.debugPrintln("state of clutch pos lim sw - SHIFTING: ");
-    iSerial.debugPrintln(String(inputs.ClutchPosLimSw));
-    iSerial.debugPrintln("state of shift up sw: ");
-    iSerial.debugPrintln(String(inputs.ShiftUpSw));
-    iSerial.debugPrintln("state of shift down sw: ");
-    iSerial.debugPrintln(String(inputs.ShiftDownSw));
+    iSerial.debugPrint("state of clutch lim sw at the pedaling position: ");
+    iSerial.debugPrintln(inputs.ClutchNegLimSw ? "ON" : "OFF");
+    iSerial.debugPrint("state of clutch positive lim sw at the shifting position: ");
+    iSerial.debugPrintln(inputs.ClutchPosLimSw ? "ON" : "OFF");
+    iSerial.debugPrint("state of shift up switch: ");
+    iSerial.debugPrintln(inputs.ShiftUpSw ? "ON" : "OFF");
+    iSerial.debugPrint("state of shift down switch: ");
+    iSerial.debugPrintln(inputs.ShiftDownSw ? "ON" : "OFF");
     delay(1000);
   }
+  Timer1.initialize(UPDATE_TIME_US); // Initialize timer to trigger every X microseconds
+  Timer1.attachInterrupt(updateMotors, UPDATE_TIME_US);
 }
 
 // TASK: MOVE CLUTCH TO SHIFTING POSITION
@@ -678,29 +680,50 @@ void serializeFaultData(FaultData *msgPacket, char *data)
 // USED FOR MANUAL MODE - jogs motor at 100% pwr with shift switches
 void runClutchMotorManualMode()
 {
-  Serial.print("clutch motor position: ");
-  Serial.print(motors[Motors::CLUTCH].actualPosition);
-  Serial.println(" deg");
+  static double lastPosition = 0.0;
+
   if (inputs.ShiftUpSw)
   {
     // disengageClutch();
     motors[Motors::CLUTCH].enable();
     motors[Motors::CLUTCH].jogUsingPower(20.0);
+    if (iSerial.modeTime() > 500 && motors[Motors::CLUTCH].actualPosition < lastPosition)
+    {
+      Serial.println("error: clutch motor position decreased when it was expected to increase");
+    }
+    else
+    {
+      Serial.print("jogging clutch motor positively - position: ");
+      Serial.print(motors[Motors::CLUTCH].actualPosition);
+      Serial.println(" deg");
+    }
   }
   else if (inputs.ShiftDownSw)
   {
     // disengageClutch();
     motors[Motors::CLUTCH].enable();
     motors[Motors::CLUTCH].jogUsingPower(-20.0);
+    if (iSerial.modeTime() > 500 && motors[Motors::CLUTCH].actualPosition > lastPosition)
+    {
+      Serial.println("error: clutch motor position increased when it was expected to decrease");
+    }
+    else
+    {
+      Serial.print("jogging clutch motor negatively - position: ");
+      Serial.print(motors[Motors::CLUTCH].actualPosition);
+      Serial.println(" deg");
+    }
   }
   else
   {
     motors[Motors::CLUTCH].disable();
     // disengageClutch(true);
     iSerial.resetModeTime();
+    lastPosition = motors[Motors::CLUTCH].actualPosition;
     // if(dimitriCfg.hasClutchSolenoid){
     //   digitalWrite(PIN_CLUTCH_SOL, !SOL_ON);
     // }
+    Serial.println("CLUTCH MOTOR MANUAL MODE: press and hold up or down shift to move");
   }
 }
 
@@ -780,15 +803,26 @@ void runLinearMotorManualMode(uint8_t motorId)
   }
 }
 
+bool runMotorsThisScan = false;
+uint8_t motorId = 0;
 void updateMotors()
 {
-  for (int i = 0; i < NUM_MOTORS; i++)
-  {
-    motors[i].update();
-  }
+  runMotorsThisScan = !runMotorsThisScan;
+  motors[motorId].update();
+  motors[motorId].run();
+  motorId = (motorId + 1) % NUM_MOTORS;
+  // for (int i = 0; i < NUM_MOTORS; i++)
+  // {
+  //   motors[i].update();
+  //   if (runMotorsThisScan)
+  //   {
+  //     //motors[i].run();
+  //   }
+  // }
 }
 
 StateManager clutchMotorHoming; // state manager for homing routine clutch motor
+// homes motor to neg lim switch and "referred to as home sw", ends in the pedaling position
 bool runHomingRoutineClutchMotor(bool reset = false)
 {
   if (reset)
@@ -824,10 +858,11 @@ bool runHomingRoutineClutchMotor(bool reset = false)
       // Wait for clutch motor to reach disengaged position
       if (motors[Motors::CLUTCH].getState() == Motor::States::IDLE && motors[Motors::CLUTCH].isHomed)
       {
-        clutchMotorHoming.transitionToStep(1000);
+        clutchMotorHoming.transitionToStep(20);
       }
       break;
     case 20:
+      clutchMotorHoming.StepDescription("Requesting clutch motor move to pedaling position");
       motors[Motors::CLUTCH].moveAbs(POSITION_CLUTCH_PEDALING);
       if (motors[Motors::CLUTCH].getState() == Motor::States::MOVING)
       {
@@ -835,6 +870,7 @@ bool runHomingRoutineClutchMotor(bool reset = false)
       }
       break;
     case 21:
+      clutchMotorHoming.StepDescription("Waiting for clutch motor to reach pedaling position");
       if (motors[Motors::CLUTCH].getState() == Motor::States::IDLE)
       {
         clutchMotorHoming.transitionToStep(22);
@@ -1221,6 +1257,11 @@ bool enableAllMotors()
   return allMotorsEnabled;
 }
 
+String getSensorStateString(bool state)
+{
+  return state ? "ON" : "OFF";
+}
+
 void readInputs()
 {
   inputs.ShiftUpSw = !digitalRead(PIN_SHIFT_UP);
@@ -1307,6 +1348,7 @@ int getRandomNumber(int min, int max) // get reandom
 
 void loop()
 {
+  // iSerial.debugPrintln("Dimitri loop() started");
   unsigned long timeNowUs = micros();
   if (timeNowUs - lastUpdateUs > SCAN_TIME_US)
   {
@@ -1365,10 +1407,10 @@ void loop()
       Serial.println(motors[Motors::LINEAR_S].actualPosition);
     }
 
-    for (int i = 0; i < NUM_MOTORS; i++)
-    {
-      motors[i].run();
-    }
+    // for (int i = 0; i < NUM_MOTORS; i++)
+    // {
+    //   motors[i].run();
+    // }
     readInputs();
     timeNow = millis();
 
