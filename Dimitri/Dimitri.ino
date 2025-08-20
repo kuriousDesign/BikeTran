@@ -68,7 +68,7 @@ const bool SIM_MODE = false;                                                    
 #define PIN_LINEAR_S_ENC_B 52 // green wire of enc
 
 #define PIN_CLUTCH_ENC_A 21 // yellow wire of enc??
-#define PIN_CLUTCH_ENC_B 54 // green wire of enc??
+#define PIN_CLUTCH_ENC_B 53 // green wire of enc??
 
 #define PIN_EINK_BIT0 22 // NOTE THAT PINS 22, 24, 26, & 28 ARE USED AS OUTPUTS FOR GEAR NUMBER DISPLAY ON E-INK
 #define PIN_EINK_BIT1 24
