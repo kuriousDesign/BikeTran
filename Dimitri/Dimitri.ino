@@ -1,5 +1,5 @@
 #define SCAN_TIME_US 5000  // how frequently the loop updates
-#define UPDATE_TIME_US 350 // time that the motor velocities are updated, motor run() are called at half this rate
+#define UPDATE_TIME_US 500 // time that the motor velocities are updated, motor run() are called at half this rate
 #define NUM_MOTORS 3
 
 enum Motors
@@ -21,7 +21,7 @@ enum Motors
 #include "TimerOne.h"
 
 // OPERATING MODES: IO_CHECKOUT, MANUAL_CLUTCH, MANUAL_LINEAR_P, MANUAL_LINEAR_S, AUTO
-const OperatingModes OPERATING_MODE = OperatingModes::IO_CHECKOUT; // set to OperatingModes::AUTO to run the system in debug mode
+const OperatingModes OPERATING_MODE = OperatingModes::MANUAL_CLUTCH_ENGAGE; // set to OperatingModes::AUTO to run the system in debug mode
 
 const double LinearHomingPwr = 100.0;
 const int LinearNudgeTimeMsDuringHomingJog = 50;
@@ -56,7 +56,7 @@ const bool SIM_MODE = false;                                                    
 #define PIN_LINEAR_S_PWM 11
 #define PIN_LINEAR_S_DIR 13
 
-// CLUTCH MOTOR - WIRED TO STANDALONE MOTOR BOARD A
+// CLUTCH MOTOR - WIRED TO STANDALONE MOTOR BOARD A - RED MOTOR WIRE IS CONNECTED TO OUT1 AND BLACK TO OUT2
 #define PIN_CLUTCH_PWM 44     // --> wires to ENA pin of L298N driver board
 #define PIN_CLUTCH_DIR_IN1 45 // --> wires to IN1 of L298N driver board
 #define PIN_CLUTCH_DIR_IN2 46 // --> wires to IN2 of L298N driver board
@@ -110,8 +110,12 @@ Encoder encoders[NUM_MOTORS] = {
     Encoder(PIN_LINEAR_P_ENC_A, PIN_LINEAR_P_ENC_B),
     Encoder(PIN_LINEAR_S_ENC_A, PIN_LINEAR_S_ENC_B)};
 
-const double CLUTCH_PULSES_PER_UNIT = 780.0 / 180.0;
-const double LINEAR_PULSES_PER_UNIT = 14.0 / 11.0 * 2.0 * 8600.0 / (double(NUM_GEARS) - 1.0); // 9200 is the max position, 488 is the min position
+const double CLUTCH_PULSES_PER_UNIT = 120.0 / 360.0; //120PPR /360deg for the 600rpm motor
+// notes from joe on AUG 19 2025 - 12mm per turn, 6.62 mm per gear
+const double LINEAR_P_PULSES_PER_UNIT = 14.0 / 11.0 * 2.0 * 8600.0 / (double(NUM_GEARS) - 1.0); // 9200 is the max position, 488 is the min position
+// 12 mm per turn, 6.13mm per gear 
+const double LINEAR_S_PULSES_PER_UNIT = LINEAR_P_PULSES_PER_UNIT;
+
 
 Motor::Cfg clutchMotorCfg = {
   name : "clutch",                             // name
@@ -123,14 +127,14 @@ Motor::Cfg clutchMotorCfg = {
   maxVelocity : 1000.0,                   // max velocity
   softLimitPositive : 721.0,              // soft limit positive
   softLimitNegative : -721.0,             // soft limit negative
-  invertEncoderDir : false,               // invert encoder
+  invertEncoderDir : true,               // invert encoder
   encoderRollover : false,                // enable encoder rollover
-  invertMotorDir : false,                 // invert motor direction
+  invertMotorDir : true,                 // invert motor direction
   positionTol : 3.0,                      // position tolerance
   zeroVelocityTol : 5.0,                  // zero velocity tolerance, units/sec
   kP : 10.0,                              // kP
   kD : 1.0,                               // kD
-  nudgeTimeMs : 0,                        // nudge time
+  nudgeTimeMs : 20,                        // nudge time
   nudgePower : 100.0                      // nudge power
 };
 
@@ -140,7 +144,7 @@ Motor::Cfg linearPrimaryMotorCfg = {
   homingType : Motor::HomingType::HARDSTOP,
   homeOffsetFromZero : LINEAR_P_HOME_OFFSET, // units
   unit : "gear",
-  pulsesPerUnit : LINEAR_PULSES_PER_UNIT,
+  pulsesPerUnit : LINEAR_P_PULSES_PER_UNIT,
   maxVelocity : 20.0,
   softLimitPositive : (6 + 0.5),
   softLimitNegative : 0.5,
@@ -161,7 +165,7 @@ Motor::Cfg linearSecondaryMotorCfg = {
   homingType : Motor::HomingType::HARDSTOP,
   homeOffsetFromZero : LINEAR_S_HOME_OFFSET, // units
   unit : "gear",
-  pulsesPerUnit : LINEAR_PULSES_PER_UNIT,
+  pulsesPerUnit : LINEAR_S_PULSES_PER_UNIT,
   maxVelocity : 20.0,
   softLimitPositive : (3 + 0.5),
   softLimitNegative : 0.5,
@@ -270,7 +274,7 @@ void setup()
   //   digitalWrite(PIN_CLUTCH_SOL, !SOL_ON);
   // }
 
-  motors[Motors::CLUTCH].setDebug(false);
+  motors[Motors::CLUTCH].setDebug(true);
   motors[Motors::LINEAR_P].setDebug(false);
   motors[Motors::LINEAR_S].setDebug(false);
 
@@ -687,7 +691,7 @@ void runClutchMotorManualMode()
   {
     // disengageClutch();
     motors[Motors::CLUTCH].enable();
-    motors[Motors::CLUTCH].jogUsingPower(20.0);
+    motors[Motors::CLUTCH].jogUsingPower(100.0);
     if (iSerial.modeTime() > 500 && motors[Motors::CLUTCH].actualPosition < lastPosition)
     {
       Serial.println("error: clutch motor position decreased when it was expected to increase");
@@ -703,7 +707,7 @@ void runClutchMotorManualMode()
   {
     // disengageClutch();
     motors[Motors::CLUTCH].enable();
-    motors[Motors::CLUTCH].jogUsingPower(-20.0);
+    motors[Motors::CLUTCH].jogUsingPower(-100.0);
     if (iSerial.modeTime() > 500 && motors[Motors::CLUTCH].actualPosition > lastPosition)
     {
       Serial.println("error: clutch motor position increased when it was expected to decrease");
@@ -828,6 +832,10 @@ bool runHomingRoutineClutchMotor(bool reset = false)
 {
   if (reset)
   {
+    if (OPERATING_MODE == OperatingModes::MANUAL_CLUTCH_ENGAGE)
+    {
+      clutchMotorHoming.SetDebug(true);
+    }
     clutchMotorHoming.transitionToStep(0);
   }
   else
@@ -859,7 +867,14 @@ bool runHomingRoutineClutchMotor(bool reset = false)
       // Wait for clutch motor to reach disengaged position
       if (motors[Motors::CLUTCH].getState() == Motor::States::IDLE && motors[Motors::CLUTCH].isHomed)
       {
-        clutchMotorHoming.transitionToStep(20);
+        if (OPERATING_MODE == OperatingModes::MANUAL_CLUTCH_ENGAGE)
+        {
+          clutchMotorHoming.transitionToStep(1000);
+        }
+        else
+        {
+          clutchMotorHoming.transitionToStep(20);
+        }
       }
       break;
     case 20:
@@ -1490,8 +1505,12 @@ void loop()
       break;
     case Modes::INACTIVE:
       turnAllOff();
-      if (OPERATING_MODE == OperatingModes::AUTO)
+      if (OPERATING_MODE == OperatingModes::AUTO || OPERATING_MODE == OperatingModes::MANUAL_CLUTCH_ENGAGE)
       {
+        if (!AUTO_RESET){
+          iSerial.debugPrintln("Press both shift buttons to reset");
+        }
+
         if (AUTO_RESET || (resetReq))
         {
           iSerial.setNewMode(Modes::RESETTING);
@@ -1529,7 +1548,14 @@ void loop()
         if (runHomingRoutineClutchMotor())
         {
           runHomingRoutineLinearMotors(true); // this resets the homing routine
-          iSerial.status.step = 55;
+          if (OPERATING_MODE == OperatingModes::MANUAL_CLUTCH_ENGAGE)
+          {
+            iSerial.setNewMode(Modes::MANUAL);
+          }
+          else
+          {
+            iSerial.status.step = 55;
+          }
         }
       }
       else if (iSerial.status.step == 55)
@@ -1628,8 +1654,14 @@ void loop()
       {
         switch (OPERATING_MODE)
         {
-        case OperatingModes::MANUAL_CLUTCH:
+        case OperatingModes::MANUAL_CLUTCH_JOGGING:
           runClutchMotorManualMode();
+          break;
+        case OperatingModes::MANUAL_CLUTCH_ENGAGE:
+          if(inputs.ShiftUpSw){
+            disengageClutch(true);
+            iSerial.status.step = 50;
+          }
           break;
         case OperatingModes::MANUAL_LINEAR_P:
           runLinearMotorManualMode(Motors::LINEAR_P);
@@ -1639,6 +1671,25 @@ void loop()
           break;
         }
       }
+      else if (iSerial.status.step == 50)
+      {
+        if (disengageClutch() && inputs.ShiftUpSw)
+        {
+          iSerial.debugPrintln("Clutch motor disengaged (shift position)");
+          engageClutch(true);
+          iSerial.status.step = 55;
+        }
+      }
+      else if (iSerial.status.step == 55)
+      {
+        if (engageClutch())
+        {
+          iSerial.debugPrintln("Clutch motor engaged (pedal position)");
+          disengageClutch(true);
+          iSerial.status.step = 1;
+        }
+      }
+      
       break;
 
     default:

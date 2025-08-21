@@ -18,10 +18,11 @@ enum Modes : int32_t //
 enum OperatingModes
 {
   AUTO = 0,
-  MANUAL_CLUTCH = 1,
+  MANUAL_CLUTCH_JOGGING = 1,
   MANUAL_LINEAR_P = 2,
   MANUAL_LINEAR_S = 3,
-  IO_CHECKOUT = 4
+  IO_CHECKOUT = 4,
+  MANUAL_CLUTCH_ENGAGE = 5,
 };
 
 enum Events : int

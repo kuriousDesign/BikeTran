@@ -117,7 +117,7 @@ private:
     bool _enableReq = false;
     bool _disableReq = false;
     double _homingPwr = 20.0;
-    StateManager _homingState;
+    StateManager taskState;
  
 
     bool _firstScan = false;

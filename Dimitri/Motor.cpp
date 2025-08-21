@@ -73,6 +73,7 @@ void Motor::run()
         {
             homeToHardstop(_cfg->homingDir, true);
             homeToSwitch(_cfg->homingDir, Sensors::HOME_SW, true);
+            _isHomed = false;
             _nextState = States::HOMING;
         }
         break;
@@ -193,62 +194,63 @@ bool Motor::homeToHardstop(int8_t dir, bool reset = false)
         if (dir != HomingDir::NEGATIVE && dir != HomingDir::POSITIVE)
         {
             debugPrintln("Invalid homing direction");
-            _homingState.triggerError("Invalid homing direction: " + String(dir));
-            _homingState.transitionToStep(911);
+            taskState.triggerError("Invalid homing direction: " + String(dir));
+            taskState.transitionToStep(911);
         }
         else
         {
-            _homingState.transitionToStep(0);
+            taskState.transitionToStep(0);
         }
     }
     else
     {
-        switch (_homingState.Step)
+        switch (taskState.Step)
         {
         case 0:
-            _homingState.StepDescription("Initializing homing sequence");
+            taskState.StepDescription("Initializing homing sequence");
             _isHomed = false;
             zero();
             max_position = actualPosition;
-            _homingState.transitionToStep(10);
+            taskState.transitionToStep(10);
             break;
         case 10:
-            _homingState.StepDescription("Moving towards hard stop");
+            taskState.StepDescription("Moving towards hard stop");
             _outputPower = dir * _homingPwr;
             if ((dir > 0 && actualPosition > max_position) || (dir < 0 && actualPosition < max_position))
             {
                 max_position = actualPosition;
-                _homingState.transitionToStep(11);
+                taskState.transitionToStep(11);
             }
-            else if (_homingState.getStepActiveTime() > 1000)
+            else if (taskState.getStepActiveTime() > 1000)
             {
                 debugPrintln("Hardstop found");
-                _homingState.transitionToStep(20);
+                taskState.transitionToStep(20);
             }
             break;
         case 11:
-            _homingState.StepDescription("Resetting step time");
+            taskState.StepDescription("Resetting step time");
             _outputPower = dir * _homingPwr;
-            _homingState.transitionToStep(10);
+            taskState.transitionToStep(10);
             break;
         case 20:
-            _homingState.StepDescription("Setting position");
+            taskState.StepDescription("Setting position");
             _outputPower = dir * _homingPwr;
             setPosition(_cfg->homeOffsetFromZero);
-            _homingState.transitionToStep(30);
+            taskState.transitionToStep(30);
         case 30:
-            _homingState.StepDescription("Removing power");
+            taskState.StepDescription("Removing power");
             _outputPower = 0.0;
-            debugPrintln("Homing complete");
-            _homingState.transitionToStep(1000);
+            //debugPrintln("Homing complete");
+            taskState.transitionToStep(1000);
             break;
         case 1000:
-            _homingState.StepDescription("Homing complete");
+            taskState.StepDescription("Homing complete");
             _outputPower = 0.0;
             _isHomed = true;
             return true;
             break;
-        case 911: // Error
+        case 911:
+            taskState.StepDescription("Error");
             _outputPower = 0.0;
             break;
         }
@@ -267,32 +269,32 @@ bool Motor::homeToSwitch(int8_t searchDir, Sensors sensorId, bool reset)
         if (searchDir != HomingDir::NEGATIVE && searchDir != HomingDir::POSITIVE)
         {
             debugPrintln("Invalid homing direction");
-            _homingState.triggerError("Invalid homing direction: " + String(searchDir));
-            _homingState.transitionToStep(911);
+            taskState.triggerError("Invalid homing direction: " + String(searchDir));
+            taskState.transitionToStep(911);
         }
         else
         {
-            _homingState.transitionToStep(0);
+            taskState.transitionToStep(0);
         }
     }
     else
     {
-        switch (_homingState.Step)
+        switch (taskState.Step)
         {
         case 0:
-            _homingState.StepDescription("Initializing homing sequence");
+            taskState.StepDescription("Initializing homing sequence");
             _isHomed = false;
             zero();
             recorded_position = 0.0;
-            _homingState.transitionToStep(10);
+            taskState.transitionToStep(10);
             break;
         case 10:
-            _homingState.StepDescription("Searching for sensor");
+            taskState.StepDescription("Searching for sensor");
 
             if (sensors[sensorId])
             {
                 debugPrintln("Sensor found");
-                _homingState.transitionToStep(20);
+                taskState.transitionToStep(20);
             }
             else
             {
@@ -301,34 +303,34 @@ bool Motor::homeToSwitch(int8_t searchDir, Sensors sensorId, bool reset)
             break;
 
         case 20:
-            _homingState.StepDescription("Moving off sensor");
+            taskState.StepDescription("Moving off sensor");
             _outputPower = searchDir * _homingPwr;
             if (!sensors[sensorId])
             {
                 debugPrintln("Sensor no longer triggered");
-                _homingState.transitionToStep(30);
+                taskState.transitionToStep(30);
             }
             break;
         case 30:
-            _homingState.StepDescription("slowly going back to trigger sensor and record position");
+            taskState.StepDescription("slowly going back to trigger sensor and record position");
             _outputPower = -searchDir * _homingPwr * 0.5;
             if (!sensors[sensorId])
             {
                 debugPrintln("recorded position");
                 recorded_position = actualPosition;
-                _homingState.transitionToStep(31);
+                taskState.transitionToStep(31);
             }
             break;
         case 31:
-            if (_homingState.getStepActiveTime() > 1500)
+            if (taskState.getStepActiveTime() > 1500)
             {
-                _homingState.StepDescription("Letting motor settle and then setting recorded position");
+                taskState.StepDescription("Letting motor settle and then setting recorded position");
                 double adjustedSetPosition = (actualPosition - recorded_position) + _cfg->homeOffsetFromZero;
                 setPosition(adjustedSetPosition);
-                _homingState.transitionToStep(1000);
+                taskState.transitionToStep(1000);
             }
         case 1000:
-            _homingState.StepDescription("Homing complete");
+            taskState.StepDescription("Homing complete");
             _outputPower = 0.0;
             _isHomed = true;
             debugPrintln("Homing complete");
@@ -726,6 +728,7 @@ int16_t Motor::getState()
 void Motor::setDebug(bool state)
 {
     _debug = state;
+    taskState.SetDebug(state);
     debugPrintln("Motor " + _cfg->name + " - Debugging Enabled");
 }
 
