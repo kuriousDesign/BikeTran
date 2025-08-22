@@ -41,6 +41,7 @@ public:
         int8_t homingDir;   //-1 for reverse, 1 for forward
         uint8_t homingType; // 0 for none, 1 for home swith, 2 for limit switch, 3 for hardstop
         double homeOffsetFromZero; // units
+        float homingPwr;  // power to use during homing, %
         String unit;        //'mm' or 'deg' for example
         double pulsesPerUnit;
         double maxVelocity; // units
@@ -55,7 +56,7 @@ public:
         double kP;              // proportional gain for PID, units
         double kD;              // derivative gain for PID, units
         uint16_t nudgeTimeMs;   // ms
-        double nudgePower;      //%
+        float nudgePower;      //%
     };
     Motor(uint8_t dirPin, uint8_t speedPin, Encoder *encoder, Cfg *cfg, bool simMode = false, uint8_t dir2Pin = DUMMY_PIN, uint8_t homeSwPin = DUMMY_PIN);
 
@@ -116,9 +117,8 @@ private:
     bool _zeroReq = false;
     bool _enableReq = false;
     bool _disableReq = false;
-    double _homingPwr = 20.0;
-    StateManager taskState;
- 
+
+    StateManager processState = StateManager("processState");
 
     bool _firstScan = false;
     int16_t _nextState = States::KILLED;

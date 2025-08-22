@@ -3,71 +3,85 @@
 
 #include <Arduino.h>
 
-class StateManager {
+class StateManager
+{
 private:
+    String _name;
     int _step = -1;
     int _nextStep = 0;
     bool _debugEnabled = false;
     bool _errorsPresent = false;
 
-
     unsigned long _stepStartTime = 0;
     String _stepDescription = "";
 
 public:
+    // Constructor
+    StateManager(String name) : _name(name) {}
+
     // Read-only property
-    int Step; 
+    int Step;
     bool FirstScan;
     bool ErrorsPresent;
 
-    void SetDebug(bool enable) {
+    void SetDebug(bool enable)
+    {
         _debugEnabled = enable;
     }
-
-    void StepDescription(String description) {
-        _stepDescription = description;
+    void StepDescription(const char* description)
+    {
+        if (FirstScan)
+        {
+            _stepDescription = description;
+            if (_debugEnabled)
+            {
+                Serial.println(_name + " Step: " + _step + " - " + _stepDescription);
+            }
+        }
     }
 
     // Set a new step and reset the step timer
-    void transitionToStep(int newStep) {
+    void transitionToStep(int newStep)
+    {
         _nextStep = newStep;
-        _stepStartTime = millis();
+       
     }
 
-    void triggerError(String errorMessage) {
-        if (_debugEnabled) {
+    void triggerError(String errorMessage)
+    {
+        if (_debugEnabled)
+        {
             Serial.print("Error: ");
             Serial.println(errorMessage);
         }
         _errorsPresent = true;
     }
 
-    void clearErrors() {
+    void clearErrors()
+    {
         _errorsPresent = false;
     }
 
-    void run() {
+    void run()
+    {
         ErrorsPresent = _errorsPresent;
-        if (FirstScan) {
-            if(_debugEnabled) {
-                Serial.print("Step: ");
-                Serial.print(_step);
-                Serial.print(" - ");
-                Serial.println(_stepDescription);
-            }
-        }
-        if (_step != _nextStep) {
+
+        if (_step != _nextStep)
+        {
             _step = _nextStep;
             _stepStartTime = millis();
             FirstScan = true;
-        } else {
+        }
+        else
+        {
             FirstScan = false;
         }
         Step = _step;
     }
 
     // ms, Get the time the current step has been active
-    unsigned long getStepActiveTime() const {
+    unsigned long getStepActiveTime() const
+    {
         return millis() - _stepStartTime;
     }
 };

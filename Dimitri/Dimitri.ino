@@ -20,8 +20,10 @@ enum Motors
 #include "Motor.h"
 #include "TimerOne.h"
 
-// OPERATING MODES: IO_CHECKOUT, MANUAL_CLUTCH, MANUAL_LINEAR_P, MANUAL_LINEAR_S, AUTO
-const OperatingModes OPERATING_MODE = OperatingModes::MANUAL_CLUTCH_ENGAGE; // set to OperatingModes::AUTO to run the system in debug mode
+// OPERATING MODES: IO_CHECKOUT, MANUAL_CLUTCH_JOGGING, MANUAL_CLUTCH_ENGAGE, MANUAL_LINEAR_P, MANUAL_LINEAR_S, AUTO
+const OperatingModes OPERATING_MODE = OperatingModes::MANUAL_LINEAR_S; // set to OperatingModes::AUTO to run the system in debug mode
+
+const double CLUTCH_JOG_PWR = 70.0;
 
 const double LinearHomingPwr = 100.0;
 const int LinearNudgeTimeMsDuringHomingJog = 50;
@@ -37,7 +39,7 @@ const double LINEAR_P_HOME_OFFSET = 6.3;       // units is gears, distance (meas
 const double LINEAR_S_HOME_OFFSET = 0.3;       // units is gears, distance (measured in gears) to move away from limit switch in order to be in 1st Gear
 
 const unsigned long DELAY_LINEAR_MOTION_AFTER_CLUTCH_REACHES_SHIFT_POSITION_MS = 200; // ms, time to wait after clutch reaches shifting position before linear motor motion is allowed
-const bool AUTO_RESET = false;                                                        // if this is true, the system will automatically reset when inactive (no errors)
+const bool AUTO_RESET = true;                                                        // if this is true, the system will automatically reset when inactive (no errors)
 const bool SHIFT_BUTTONS_DISABLED = false;                                            // if this is true, the shift buttons will be disabled (ignored)
 const bool SIM_MODE = false;                                                          // set to true to simulate motor behavior (encoders positions for now, TODO: simulate lim switches)
 
@@ -68,7 +70,7 @@ const bool SIM_MODE = false;                                                    
 #define PIN_LINEAR_S_ENC_B 52 // green wire of enc
 
 #define PIN_CLUTCH_ENC_A 21 // yellow wire of enc??
-#define PIN_CLUTCH_ENC_B 53 // green wire of enc??
+#define PIN_CLUTCH_ENC_B 2 // green wire of enc??
 
 #define PIN_EINK_BIT0 22 // NOTE THAT PINS 22, 24, 26, & 28 ARE USED AS OUTPUTS FOR GEAR NUMBER DISPLAY ON E-INK
 #define PIN_EINK_BIT1 24
@@ -110,7 +112,7 @@ Encoder encoders[NUM_MOTORS] = {
     Encoder(PIN_LINEAR_P_ENC_A, PIN_LINEAR_P_ENC_B),
     Encoder(PIN_LINEAR_S_ENC_A, PIN_LINEAR_S_ENC_B)};
 
-const double CLUTCH_PULSES_PER_UNIT = 120.0 / 360.0; //120PPR /360deg for the 600rpm motor
+const double CLUTCH_PULSES_PER_UNIT = 445.12/360.0; // 480.0 / 360.0; //120PPR /360deg for the 600rpm motor
 // notes from joe on AUG 19 2025 - 12mm per turn, 6.62 mm per gear
 const double LINEAR_P_PULSES_PER_UNIT = 14.0 / 11.0 * 2.0 * 8600.0 / (double(NUM_GEARS) - 1.0); // 9200 is the max position, 488 is the min position
 // 12 mm per turn, 6.13mm per gear 
@@ -122,6 +124,7 @@ Motor::Cfg clutchMotorCfg = {
   homingDir : Motor::HomingDir::POSITIVE,      // homing direction
   homingType : Motor::HomingType::HOME_SWITCH, // homing type
   homeOffsetFromZero : 0.0,                    // home offset from zero
+  homingPwr : 100.0,
   unit : "deg",
   pulsesPerUnit : CLUTCH_PULSES_PER_UNIT, // unit and pulses per unit
   maxVelocity : 1000.0,                   // max velocity
@@ -136,6 +139,7 @@ Motor::Cfg clutchMotorCfg = {
   kD : 1.0,                               // kD
   nudgeTimeMs : 20,                        // nudge time
   nudgePower : 100.0                      // nudge power
+  
 };
 
 Motor::Cfg linearPrimaryMotorCfg = {
@@ -143,6 +147,7 @@ Motor::Cfg linearPrimaryMotorCfg = {
   homingDir : Motor::HomingDir::POSITIVE,
   homingType : Motor::HomingType::HARDSTOP,
   homeOffsetFromZero : LINEAR_P_HOME_OFFSET, // units
+  homingPwr : 50.0,
   unit : "gear",
   pulsesPerUnit : LINEAR_P_PULSES_PER_UNIT,
   maxVelocity : 20.0,
@@ -150,7 +155,7 @@ Motor::Cfg linearPrimaryMotorCfg = {
   softLimitNegative : 0.5,
   invertEncoderDir : false,
   encoderRollover : false,
-  invertMotorDir : false,
+  invertMotorDir : true,
   positionTol : 0.02,
   zeroVelocityTol : 0.05,
   kP : LinearKp,
@@ -164,6 +169,7 @@ Motor::Cfg linearSecondaryMotorCfg = {
   homingDir : Motor::HomingDir::NEGATIVE,
   homingType : Motor::HomingType::HARDSTOP,
   homeOffsetFromZero : LINEAR_S_HOME_OFFSET, // units
+  homingPwr : 50.0,
   unit : "gear",
   pulsesPerUnit : LINEAR_S_PULSES_PER_UNIT,
   maxVelocity : 20.0,
@@ -171,7 +177,7 @@ Motor::Cfg linearSecondaryMotorCfg = {
   softLimitNegative : 0.5,
   invertEncoderDir : false,
   encoderRollover : false,
-  invertMotorDir : false,
+  invertMotorDir : true,
   positionTol : 0.02,
   zeroVelocityTol : 0.05,
   kP : LinearKp,
@@ -240,7 +246,7 @@ String jsonString = "";
 unsigned long lastUpdateUs = 0;
 
 const bool SOL_ON = true;
-StateManager clutchState;
+StateManager clutchState = StateManager("clutchEngageDisengageState");
 
 void setup()
 {
@@ -691,7 +697,7 @@ void runClutchMotorManualMode()
   {
     // disengageClutch();
     motors[Motors::CLUTCH].enable();
-    motors[Motors::CLUTCH].jogUsingPower(100.0);
+    motors[Motors::CLUTCH].jogUsingPower(CLUTCH_JOG_PWR);
     if (iSerial.modeTime() > 500 && motors[Motors::CLUTCH].actualPosition < lastPosition)
     {
       Serial.println("error: clutch motor position decreased when it was expected to increase");
@@ -707,7 +713,7 @@ void runClutchMotorManualMode()
   {
     // disengageClutch();
     motors[Motors::CLUTCH].enable();
-    motors[Motors::CLUTCH].jogUsingPower(-100.0);
+    motors[Motors::CLUTCH].jogUsingPower(-CLUTCH_JOG_PWR);
     if (iSerial.modeTime() > 500 && motors[Motors::CLUTCH].actualPosition > lastPosition)
     {
       Serial.println("error: clutch motor position increased when it was expected to decrease");
@@ -728,13 +734,14 @@ void runClutchMotorManualMode()
     // if(dimitriCfg.hasClutchSolenoid){
     //   digitalWrite(PIN_CLUTCH_SOL, !SOL_ON);
     // }
-    Serial.println("CLUTCH MOTOR MANUAL MODE: press and hold up or down shift to move");
+    //Serial.println("CLUTCH MOTOR MANUAL MODE: press and hold up or down shift to move");
   }
 }
 
-StateManager stateGearMove;
+StateManager stateGearMove = StateManager("moveLinearMotorsToGear");
 bool moveLinearMotorsToGear(int8_t targetGear, bool reset = false)
 {
+  stateGearMove.run();
   if (reset)
   {
     stateGearMove.transitionToStep(0);
@@ -778,14 +785,14 @@ bool moveLinearMotorsToGear(int8_t targetGear, bool reset = false)
 void runLinearMotorManualMode(uint8_t motorId)
 {
 
-  bool clutchIsDisengaged = disengageClutch();
+  bool clutchIsDisengaged = true; //disengageClutch();
 
   if (inputs.ShiftUpSw && clutchIsDisengaged)
   {
     // analogWrite(PIN_LINEAR_P_PWM, 255);
     // digitalWrite(PIN_LINEAR_P_DIR, !motorCfgs[Motors::LINEAR].invertDir);
     motors[motorId].enable();
-    motors[motorId].jogUsingPower(20.0);
+    motors[motorId].jogUsingPower(CLUTCH_JOG_PWR);
     Serial.print("position: ");
     Serial.println(motors[motorId].actualPosition);
     // motors[Motors::LINEAR].moveAbs(11.0);
@@ -795,7 +802,7 @@ void runLinearMotorManualMode(uint8_t motorId)
     // analogWrite(PIN_LINEAR_P_PWM, 255);
     // digitalWrite(PIN_LINEAR_P_DIR, motorCfgs[Motors::LINEAR].invertDir);
     motors[motorId].enable();
-    motors[motorId].jogUsingPower(-20.0);
+    motors[motorId].jogUsingPower(-CLUTCH_JOG_PWR);
     Serial.print("position: ");
     Serial.println(motors[motorId].actualPosition);
     // motors[Motors::LINEAR].moveAbs(6.0);
@@ -813,9 +820,10 @@ uint8_t motorId = 0;
 void updateMotors()
 {
   runMotorsThisScan = !runMotorsThisScan;
+  motorId = 2;
   motors[motorId].update();
   motors[motorId].run();
-  motorId = (motorId + 1) % NUM_MOTORS;
+  
   // for (int i = 0; i < NUM_MOTORS; i++)
   // {
   //   motors[i].update();
@@ -826,10 +834,11 @@ void updateMotors()
   // }
 }
 
-StateManager clutchMotorHoming; // state manager for homing routine clutch motor
+StateManager clutchMotorHoming = StateManager("clutchMotorHoming"); // state manager for homing routine clutch motor
 // homes motor to neg lim switch and "referred to as home sw", ends in the pedaling position
 bool runHomingRoutineClutchMotor(bool reset = false)
 {
+  clutchMotorHoming.run();
   if (reset)
   {
     if (OPERATING_MODE == OperatingModes::MANUAL_CLUTCH_ENGAGE)
@@ -845,6 +854,7 @@ bool runHomingRoutineClutchMotor(bool reset = false)
     case 0:
       clutchMotorHoming.StepDescription("Initializing homing process");
       // Initialize homing process
+
       if (motors[Motors::CLUTCH].getState() == Motor::States::IDLE)
       {
         clutchMotorHoming.transitionToStep(10);
@@ -905,9 +915,10 @@ bool runHomingRoutineClutchMotor(bool reset = false)
   return false;
 }
 
-StateManager stateManagerHRLM; // state manager for homing routine linear motors
+StateManager stateManagerHRLM = StateManager("stateMngrHomeLinearMotors"); // state manager for homing routine linear motors
 bool runHomingRoutineLinearMotors(bool reset = false)
 {
+  stateManagerHRLM.run();
   if (reset)
   {
     stateManagerHRLM.transitionToStep(0);
@@ -1508,7 +1519,7 @@ void loop()
       if (OPERATING_MODE == OperatingModes::AUTO || OPERATING_MODE == OperatingModes::MANUAL_CLUTCH_ENGAGE)
       {
         if (!AUTO_RESET){
-          iSerial.debugPrintln("Press both shift buttons to reset");
+          //iSerial.debugPrintln("Press both shift buttons to reset");
         }
 
         if (AUTO_RESET || (resetReq))
@@ -1544,7 +1555,7 @@ void loop()
       }
       else if (iSerial.status.step == 51)
       {
-
+        //iSerial.debugPrintln("RESETTING: running homing routine for clutch motor");
         if (runHomingRoutineClutchMotor())
         {
           runHomingRoutineLinearMotors(true); // this resets the homing routine
