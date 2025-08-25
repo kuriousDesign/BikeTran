@@ -2,6 +2,7 @@
 #define STATE_MANAGER_H
 
 #include <Arduino.h>
+#include "SerialLogging.h"
 
 class StateManager
 {
@@ -24,6 +25,11 @@ public:
     bool FirstScan;
     bool ErrorsPresent;
 
+    void updateName(const String& name)
+    {
+        _name = name;
+    }   
+
     void SetDebug(bool enable)
     {
         _debugEnabled = enable;
@@ -35,7 +41,9 @@ public:
             _stepDescription = description;
             if (_debugEnabled)
             {
-                Serial.println(_name + " Step: " + _step + " - " + _stepDescription);
+                //Serial.println(_name + " Step: " + _step);// + " - " + _stepDescription);
+                //SerialLogging::info("%s Step: %d - %s", _name.c_str(), _step, _stepDescription.c_str());
+                SerialLogging::info("%s Step: %d", _name.c_str(), _step);
             }
         }
     }
@@ -47,12 +55,11 @@ public:
        
     }
 
-    void triggerError(String errorMessage)
+    void triggerError(const char* msg)
     {
         if (_debugEnabled)
         {
-            Serial.print("Error: ");
-            Serial.println(errorMessage);
+            SerialLogging::error(msg);
         }
         _errorsPresent = true;
     }

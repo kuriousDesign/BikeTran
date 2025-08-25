@@ -20,6 +20,12 @@ public:
         HARDSTOP = 3
     };
 
+    enum MotorProcesses : uint8_t
+    {
+        NONE_PROCESS = 0,
+        HOME = 1,
+    };
+
     enum HomingDir : int8_t
     {
         NEGATIVE = -1,
@@ -64,6 +70,7 @@ public:
     bool isEnabled = false;
     bool atPositionAndStill; // motor position is near target position and is still
     bool atPosition;         // motor position is near target position
+    uint8_t ActiveProcess = MotorProcesses::NONE_PROCESS;
 
     bool* sensors;
 
@@ -78,7 +85,6 @@ public:
     {
         KILLED = -1,
         IDLE = 0,
-        HOMING = 1,
         MOVING = 2,
         JOGGING = 3,
         HOLD_POSITION = 4,
@@ -86,8 +92,8 @@ public:
     };
     int16_t getState();
     double getOutputPower();
-   
 
+    bool requestProcess(uint8_t processId);
     bool zero();
     bool setPosition(double position);
     bool enable();
@@ -108,6 +114,10 @@ public:
 
 private:
     uint16_t _scanTimeUs = 4000; // TODO: update this inside the run() function
+    uint8_t prevActiveProcess = MotorProcesses::NONE_PROCESS;
+
+    unsigned long lastTime = 0;  // For delta time calculation
+    double avgAbsError = 0.0;    // IIR-filtered average abs(error)
 
     bool _stopReq = false;
     bool _homeReq = false;
@@ -144,6 +154,7 @@ private:
     void updatePosition();
     void reconditionFilteredData(double diff);
     bool* updateSensors();
+    void runProcess();
 
     Cfg *_cfg;
     uint8_t _dirPin;

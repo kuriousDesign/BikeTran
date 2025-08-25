@@ -10,21 +10,98 @@ Motor::Motor(uint8_t dirPin, uint8_t speedPin, Encoder *encoder, Cfg *cfg, bool 
     init();
 }
 
+bool Motor::requestProcess(uint8_t processId)
+{
+    if (ActiveProcess == MotorProcesses::NONE_PROCESS && (_state == States::IDLE || _state == States::KILLED))
+    {
+        String message = "MOTOR (" + _cfg->name + ") - New Process requested: " + String(processId);
+        debugPrintln(message);
+        ActiveProcess = processId;
+        return true;
+    } else if ( ActiveProcess == processId){
+        //do nothing
+    }
+    else {
+        String message = "MOTOR (" + _cfg->name + ") - Process request denied: " + String(processId);
+        SerialLogging::info(message.c_str());
+    }
+    return false;
+}
+
+void Motor::runProcess()
+{
+    bool processFirstScan = (ActiveProcess != prevActiveProcess);
+    prevActiveProcess = ActiveProcess;
+    //SerialLogging::info("Motor %s - process Step: %d", _cfg->name.c_str(), processState.Step);
+    switch (ActiveProcess)
+    {
+    case MotorProcesses::HOME:
+        if (processFirstScan)
+        {
+            homeToHardstop(_cfg->homingDir, true);
+            homeToSwitch(_cfg->homingDir, Sensors::HOME_SW,true);
+            //SerialLogging::info("Motor %s - process Step: %d", _cfg->name.c_str(), processState.Step);(_cfg->homingDir, Sensors::HOME_SW, true);
+            _isHomed = false;
+            debugPrintln("homing sd");
+        }
+        else
+        {
+            
+            switch (_cfg->homingType)
+            {
+            case Motor::HomingType::NONE:
+                // No homing required
+                _isHomed = true;
+                ActiveProcess = MotorProcesses::NONE_PROCESS;
+                break;
+            case Motor::HomingType::HOME_SWITCH:
+                //debugPrintln("homing to home sw");
+                if (homeToSwitch(_cfg->homingDir, Sensors::HOME_SW))
+                {
+                    _isHomed = true;
+                    ActiveProcess = MotorProcesses::NONE_PROCESS;
+                }
+                break;
+            case Motor::HomingType::LIMIT_SWITCH:
+                if (homeToSwitch(_cfg->homingDir, Sensors::LIMIT_SW_POS) || homeToSwitch(_cfg->homingDir, Sensors::LIMIT_SW_NEG))
+                {
+                    _isHomed = true;
+                    ActiveProcess = MotorProcesses::NONE_PROCESS;
+                }
+                break;
+            case Motor::HomingType::HARDSTOP:
+                if (homeToHardstop(_cfg->homingDir))
+                {
+                    _isHomed = true;
+                    ActiveProcess = MotorProcesses::NONE_PROCESS;
+                }
+                break;
+            default:
+                debugPrintln("Invalid homing type");
+                ActiveProcess = MotorProcesses::NONE_PROCESS;
+                break;
+            }
+        }
+        break;
+    }
+    
+}
+
 // run the state machine
 void Motor::run()
 {
-
+    runProcess();
     // INSTANT KILL
     if (_disableReq)
     {
         _nextState = States::KILLED;
+        //debugPrintln("MOTOR (" + _cfg->name + ") - Instant Kill");
     }
 
     if (_nextState != _state)
     {
         _state = _nextState;
-        debugPrint("MOTOR (" + _cfg->name + ") - State: ");
-        debugPrintln(stateToString());
+        debugPrintln("MOTOR (" + _cfg->name + ") - State changed to: " + stateToString());
         _firstScan = true;
     }
     else
@@ -69,13 +146,7 @@ void Motor::run()
         {
             _nextState = States::HOLD_POSITION;
         }
-        else if (_homeReq)
-        {
-            homeToHardstop(_cfg->homingDir, true);
-            homeToSwitch(_cfg->homingDir, Sensors::HOME_SW, true);
-            _isHomed = false;
-            _nextState = States::HOMING;
-        }
+
         break;
     case States::JOGGING:
         checkIsNudging(true);
@@ -90,7 +161,7 @@ void Motor::run()
 
         // TODO: add sticky input to check if motor is stalled using isStill and checking prev and current encoder counts
 
-        if (_stopReq)
+        if (_stopReq || !_jogReq)
         {
             _nextState = States::STOPPING;
         }
@@ -111,27 +182,6 @@ void Motor::run()
         break;
     case States::HOLD_POSITION:
         _outputPower = pdControl();
-        break;
-
-    case States::HOMING:
-        switch (_cfg->homingType)
-        {
-        case Motor::HomingType::LIMIT_SWITCH:
-            // TODO: not implemented yet
-            break;
-        case Motor::HomingType::HOME_SWITCH:
-            if (homeToSwitch(_cfg->homingDir, Sensors::HOME_SW) && _isHomed)
-            {
-                _nextState = States::IDLE;
-            }
-            break;
-        case Motor::HomingType::HARDSTOP:
-            if (homeToHardstop(_cfg->homingDir) && _isHomed)
-            {
-                _nextState = States::IDLE;
-            }
-            break;
-        }
         break;
 
     case States::STOPPING:
@@ -175,7 +225,7 @@ void Motor::run()
 
     // RESET ALL REQUESTS
     _stopReq = false;
-    _homeReq = false;
+    //_homeReq = false;
     _moveAbsReq = false;
     _jogReq = false;
     _holdReq = false;
@@ -194,8 +244,9 @@ bool Motor::homeToHardstop(int8_t dir, bool reset = false)
         _isHomed = false;
         if (dir != HomingDir::NEGATIVE && dir != HomingDir::POSITIVE)
         {
-            debugPrintln("Invalid homing direction");
-            processState.triggerError("Invalid homing direction: " + String(dir));
+            //debugPrintln("Invalid homing direction");
+            static String errorMsg = "Invalid homing direction: " + String(dir);
+            processState.triggerError(errorMsg.c_str());
             processState.transitionToStep(911);
         }
         else
@@ -241,7 +292,7 @@ bool Motor::homeToHardstop(int8_t dir, bool reset = false)
         case 30:
             processState.StepDescription("Removing power");
             _outputPower = 0.0;
-            //debugPrintln("Homing complete");
+            // debugPrintln("Homing complete");
             processState.transitionToStep(1000);
             break;
         case 1000:
@@ -264,14 +315,15 @@ bool Motor::homeToSwitch(int8_t searchDir, Sensors sensorId, bool reset)
 {
     processState.run();
     static double recorded_position = 0.0;
-    _outputPower = 0.0;
+    //_outputPower = 0.0;
     if (reset)
     {
         _isHomed = false;
         if (searchDir != HomingDir::NEGATIVE && searchDir != HomingDir::POSITIVE)
         {
             debugPrintln("Invalid homing direction");
-            processState.triggerError("Invalid homing direction: " + String(searchDir));
+            static String errorMsg = "Invalid homing direction: " + String(searchDir);
+            processState.triggerError(errorMsg.c_str());
             processState.transitionToStep(911);
         }
         else
@@ -281,6 +333,7 @@ bool Motor::homeToSwitch(int8_t searchDir, Sensors sensorId, bool reset)
     }
     else
     {
+        SerialLogging::info("Motor %s - process Step: %d", _cfg->name.c_str(), processState.Step);
         switch (processState.Step)
         {
         case 0:
@@ -288,26 +341,45 @@ bool Motor::homeToSwitch(int8_t searchDir, Sensors sensorId, bool reset)
             _isHomed = false;
             zero();
             recorded_position = 0.0;
-            processState.transitionToStep(10);
+            if (_state == States::IDLE){
+                processState.transitionToStep(10);
+            } else if (_state == States::KILLED) {
+                processState.transitionToStep(1);
+            }
+
+            break;
+
+        case 1:
+            processState.StepDescription("Enabling motor");
+            enable();
+            if (_state == States::IDLE)
+            {
+                processState.transitionToStep(10);
+            }
             break;
         case 10:
             processState.StepDescription("Searching for sensor");
 
             if (sensors[sensorId])
             {
-                debugPrintln("Sensor found");
+                //debugPrintln("Sensor found");
                 processState.transitionToStep(20);
             }
             else
             {
-                _outputPower = searchDir * _cfg->homingPwr;
+                jogUsingPower(searchDir * _cfg->homingPwr);
             }
             break;
 
         case 20:
             processState.StepDescription("Moving off sensor");
-            _outputPower = searchDir * _cfg->homingPwr;
-            if (!sensors[sensorId])
+            jogUsingPower(searchDir * _cfg->homingPwr * 0.5);
+            if (sensors[sensorId])
+            {
+                //debugPrintln("Sensor no longer triggered");
+                processState.transitionToStep(10);
+            }
+            else if (!sensors[sensorId] && processState.getStepActiveTime() > 50)
             {
                 debugPrintln("Sensor no longer triggered");
                 processState.transitionToStep(30);
@@ -315,16 +387,17 @@ bool Motor::homeToSwitch(int8_t searchDir, Sensors sensorId, bool reset)
             break;
         case 30:
             processState.StepDescription("slowly going back to trigger sensor and record position");
-            _outputPower = -searchDir * _cfg->homingPwr * 0.5; // change this back to 0.5 TODO!!!!!!!!!
-            if (!sensors[sensorId])
+            jogUsingPower(-searchDir * _cfg->homingPwr * 0.5); // change this back to 0.5 TODO!!!!!!!!!
+            if (sensors[sensorId])
             {
                 debugPrintln("recorded position");
                 recorded_position = actualPosition;
+                stop();
                 processState.transitionToStep(31);
             }
             break;
         case 31:
-            if (processState.getStepActiveTime() > 1500)
+            if (processState.getStepActiveTime() > 1500 && _state == States::IDLE)
             {
                 processState.StepDescription("Letting motor settle and then setting recorded position");
                 double adjustedSetPosition = (actualPosition - recorded_position) + _cfg->homeOffsetFromZero;
@@ -333,7 +406,6 @@ bool Motor::homeToSwitch(int8_t searchDir, Sensors sensorId, bool reset)
             }
         case 1000:
             processState.StepDescription("Homing complete");
-            _outputPower = 0.0;
             _isHomed = true;
             debugPrintln("Homing complete");
             return true;
@@ -382,7 +454,7 @@ void Motor::setOutputs()
     if (_outputPower != 0.0 && false)
     {
         debugPrint("Speed: ");
-        debugPrintln(String(speed));
+        debugPrintln(String(speed).c_str());
     }
     analogWrite(_speedPin, speed);
 }
@@ -394,14 +466,10 @@ bool Motor::zero()
     return true;
 }
 
+// returns true if command accepted
 bool Motor::home()
 {
-    if (_state == States::IDLE)
-    {
-        _homeReq = true;
-        return true;
-    }
-    return false;
+    return requestProcess(MotorProcesses::HOME);
 }
 
 bool Motor::setPosition(double position)
@@ -434,14 +502,14 @@ bool Motor::moveAbs(double position)
 
 bool Motor::jogUsingPower(double powerPercent)
 {
-    if (_state != States::KILLED)
+    if (_state == States::IDLE || _state == States::JOGGING)
     {
         targetPower = powerPercent;
         _jogReq = true;
     }
     else
     {
-        debugPrintln("can't jog while Motor is killed, must enable first");
+        debugPrintln("jogging only allowed while idle or jogging");
         return false;
     }
     return true;
@@ -493,6 +561,8 @@ void Motor::init()
     {
         pinMode(_homeSwPin, INPUT_PULLUP);
     }
+
+    processState.updateName("motor " + _cfg->name + " processState");
 
     // Timer1.initialize(_scanTimeUs); // Initialize timer to trigger every 1000 microseconds
     // Timer1.attachInterrupt(update);
@@ -626,94 +696,44 @@ void Motor::updatePosition()
     }
 }
 
-void Motor::update()
-{
-    //debugPrintln(_cfg->name + "motor " + " - Update");
+void Motor::update() {
+    // debugPrintln(_cfg->name + "motor " + " - Update");
     unsigned long currentTime = micros();
-    unsigned long delataTime = currentTime - lastTimes[_prevIndexFilter];
-    if (delataTime <= 0)
-    {
-        delataTime = 1000; // just make it non-zero and non-negative
-    }
-
-    unsigned long dTime = currentTime - lastTimes[_indexFilter];
-    lastTimes[_indexFilter] = currentTime;
-    if (dTime <= 0)
-    {
-        dTime = 1000 * NUM_FILTER_POINTS; // just make it non-zero and non-negative
+    unsigned long delataTime = currentTime - lastTime;
+    lastTime = currentTime;
+    if (delataTime <= 0) {
+        delataTime = 1000;  // Prevent div-by-zero; assume 1ms scan
     }
 
     updatePosition();
     updateSensors();
 
-    double dPosition = actualPosition - lastPositions[_indexFilter];
-    lastPositions[_indexFilter] = actualPosition;
     error = targetPosition - actualPosition;
     double deltaPosition = actualPosition - _prevPosition;
     int32_t deltaEncoderPulses = actualEncoderPulses - _prevEncoderPulses;
 
-    sumDeltaPositions += deltaPosition - lastDeltaPositions[_indexFilter];
-    lastDeltaPositions[_indexFilter] = deltaPosition;
+    // Simplified velocity: Unfiltered, then IIR low-pass (alpha=0.2 for smoothing ~5 samples)
+    double new_vel = 1000000.0 * deltaPosition / double(delataTime);
+    actualVelocity = 0.8 * actualVelocity + 0.2 * new_vel;
 
-    sumTimes += delataTime - lastDeltaTimes[_indexFilter];
-    lastDeltaTimes[_indexFilter] = delataTime;
-
-    // actualVelocity = 1.0e6 * sumDeltaPositions/double(sumTimes);
-    actualVelocity = 1.0e6 * double(dPosition) / double(dTime);
-
-    // Shift position and time history arrays to make space for the new entry
-    // memmove(&lastPositions[1], &lastPositions[0], (NUM_FILTER_POINTS - 1) * sizeof(double));
-    // memmove(&lastTimes[1], &lastTimes[0], (NUM_FILTER_POINTS - 1) * sizeof(unsigned long));
-    // lastPositions[0] = actualPosition;
-    // lastTimes[0] = delataTime;
-    double unfiltered_velocity = 1000000.0 * double(deltaPosition) / double(delataTime);
-
-    // lastVelocities[_indexFilter] = unfiltered_velocity;
-    // sumVelocities += unfiltered_velocity - lastVelocities[_prevIndexFilter];
-    // actualVelocity = sumVelocities/double(NUM_FILTER_POINTS);
-    // lastPositions[_indexFilter] = actualPosition;
-
-    sumSpeeds += abs(unfiltered_velocity) - abs(lastVelocities[_indexFilter]);
-    lastVelocities[_indexFilter] = unfiltered_velocity;
-
-    _prevIndexFilter = _indexFilter;
-    _indexFilter = (_indexFilter + 1);
-    if (_indexFilter >= NUM_FILTER_POINTS)
-    {
-        _indexFilter = 0;
-    }
-
-    // if the targetPosition changes
-    if (_prevTargetPosition != targetPosition)
-    {
+    // Simplified average abs(error): Reset on target change, else IIR
+    if (_prevTargetPosition != targetPosition) {
         _prevTargetPosition = targetPosition;
-        sumErrors = abs(error) * double(NUM_FILTER_POINTS);
-        for (int i = 0; i < NUM_FILTER_POINTS; i++)
-        {
-            lastErrors[i] = error;
-        }
+        avgAbsError = abs(error);
+    } else {
+        avgAbsError = 0.8 * avgAbsError + 0.2 * abs(error);
     }
-    else
-    {
-        sumErrors += abs(error) - abs(lastErrors[_indexFilter]);
-    }
-    lastErrors[_indexFilter] = error;
 
-    //_isStill = sumSpeeds/double(NUM_FILTER_POINTS) <= _cfg->zeroVelocityTol;
     _isStill = abs(actualVelocity) <= _cfg->zeroVelocityTol;
-    _atPositionAndStill = sumErrors / double(NUM_FILTER_POINTS) <= _cfg->positionTol && _isStill;
+    _atPositionAndStill = avgAbsError <= _cfg->positionTol && _isStill;
 
-    if (abs(error) > _cfg->positionTol)
-    {
+    if (abs(error) > _cfg->positionTol) {
         _atPosition = false;
-    }
-    else
-    {
+    } else {
         _atPosition = true;
     }
 
-    if (_state == States::MOVING)
-    {
+    if (_state == States::MOVING) {
         _outputPower = pdControl();
         setOutputs();
     }
@@ -731,24 +751,27 @@ void Motor::setDebug(bool state)
 {
     _debug = state;
     processState.SetDebug(state);
-    debugPrintln("Motor " + _cfg->name + " - Debugging Enabled");
+    if (_debug)
+    {
+        debugPrintln("Motor " + _cfg->name + " - Debugging Enabled");
+    }
 }
 
 void Motor::debugPrintln(String msg)
 {
     if (_debug)
     {
-        Serial.println(msg);
+        SerialLogging::info(msg.c_str());
     }
 }
 
-void Motor::debugPrint(String msg)
-{
-    if (_debug)
-    {
-        Serial.print(msg);
-    }
-}
+// void Motor::debugPrint(String msg)
+// {
+//     if (_debug)
+//     {
+//         Serial.print(msg);
+//     }
+// }
 
 String Motor::stateToString()
 {
