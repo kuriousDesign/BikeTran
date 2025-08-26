@@ -14,7 +14,7 @@ bool Motor::requestProcess(uint8_t processId)
 {
     if (ActiveProcess == MotorProcesses::NONE_PROCESS && (_state == States::IDLE || _state == States::KILLED))
     {
-        String message = "MOTOR (" + _cfg->name + ") - New Process requested: " + String(processId);
+        String message = "New Process requested: " + String(processId);
         debugPrintln(message);
         ActiveProcess = processId;
         return true;
@@ -22,8 +22,8 @@ bool Motor::requestProcess(uint8_t processId)
         //do nothing
     }
     else {
-        String message = "MOTOR (" + _cfg->name + ") - Process request denied: " + String(processId);
-        SerialLogging::info(message.c_str());
+        String message = "Process request denied: " + String(processId);
+        debugPrintln(message);
     }
     return false;
 }
@@ -42,11 +42,9 @@ void Motor::runProcess()
             homeToSwitch(_cfg->homingDir, Sensors::HOME_SW,true);
             //SerialLogging::info("Motor %s - process Step: %d", _cfg->name.c_str(), processState.Step);(_cfg->homingDir, Sensors::HOME_SW, true);
             _isHomed = false;
-            debugPrintln("homing sd");
         }
         else
         {
-            
             switch (_cfg->homingType)
             {
             case Motor::HomingType::NONE:
@@ -101,7 +99,7 @@ void Motor::run()
     if (_nextState != _state)
     {
         _state = _nextState;
-        debugPrintln("MOTOR (" + _cfg->name + ") - State changed to: " + stateToString());
+        debugPrintln("State: " + stateToString());
         _firstScan = true;
     }
     else
@@ -187,7 +185,11 @@ void Motor::run()
     case States::STOPPING:
         targetPower = 0.0;
         _outputPower = 0.0; // TODO: add deceleration based on cfg params and current velocity
-        if (isStill)
+        if (_jogReq)
+        {
+            _nextState = States::JOGGING;
+        }
+        else if (isStill)
         {
             targetPosition = actualPosition;
             _nextState = States::IDLE;
@@ -333,7 +335,7 @@ bool Motor::homeToSwitch(int8_t searchDir, Sensors sensorId, bool reset)
     }
     else
     {
-        SerialLogging::info("Motor %s - process Step: %d", _cfg->name.c_str(), processState.Step);
+        //SerialLogging::info("Motor %s - process Step: %d", _cfg->name.c_str(), processState.Step);
         switch (processState.Step)
         {
         case 0:
@@ -359,15 +361,12 @@ bool Motor::homeToSwitch(int8_t searchDir, Sensors sensorId, bool reset)
             break;
         case 10:
             processState.StepDescription("Searching for sensor");
+            jogUsingPower(searchDir * _cfg->homingPwr);
 
             if (sensors[sensorId])
             {
-                //debugPrintln("Sensor found");
+                debugPrintln("homeToSwitch(): Sensor found!");
                 processState.transitionToStep(20);
-            }
-            else
-            {
-                jogUsingPower(searchDir * _cfg->homingPwr);
             }
             break;
 
@@ -376,8 +375,7 @@ bool Motor::homeToSwitch(int8_t searchDir, Sensors sensorId, bool reset)
             jogUsingPower(searchDir * _cfg->homingPwr * 0.5);
             if (sensors[sensorId])
             {
-                //debugPrintln("Sensor no longer triggered");
-                processState.transitionToStep(10);
+                processState.resetStepTime();
             }
             else if (!sensors[sensorId] && processState.getStepActiveTime() > 50)
             {
@@ -386,7 +384,7 @@ bool Motor::homeToSwitch(int8_t searchDir, Sensors sensorId, bool reset)
             }
             break;
         case 30:
-            processState.StepDescription("slowly going back to trigger sensor and record position");
+            processState.StepDescription("Going to trigger sensor and record position");
             jogUsingPower(-searchDir * _cfg->homingPwr * 0.5); // change this back to 0.5 TODO!!!!!!!!!
             if (sensors[sensorId])
             {
@@ -404,6 +402,7 @@ bool Motor::homeToSwitch(int8_t searchDir, Sensors sensorId, bool reset)
                 setPosition(adjustedSetPosition);
                 processState.transitionToStep(1000);
             }
+            break;
         case 1000:
             processState.StepDescription("Homing complete");
             _isHomed = true;
@@ -502,7 +501,7 @@ bool Motor::moveAbs(double position)
 
 bool Motor::jogUsingPower(double powerPercent)
 {
-    if (_state == States::IDLE || _state == States::JOGGING)
+    if (_state == States::IDLE || _state == States::JOGGING || _state == States::STOPPING)
     {
         targetPower = powerPercent;
         _jogReq = true;
@@ -561,8 +560,9 @@ void Motor::init()
     {
         pinMode(_homeSwPin, INPUT_PULLUP);
     }
-
-    processState.updateName("motor " + _cfg->name + " processState");
+    _motorPrefix = "MOTOR (" + _cfg->name + ") ";
+    String processName = String(_motorPrefix) + "Process";
+    processState.updateName(processName);
 
     // Timer1.initialize(_scanTimeUs); // Initialize timer to trigger every 1000 microseconds
     // Timer1.attachInterrupt(update);
@@ -749,19 +749,22 @@ int16_t Motor::getState()
 
 void Motor::setDebug(bool state)
 {
+    if (state && !_debug)
+    {
+        _debug = state;
+        debugPrintln("Debugging Enabled");
+    }
     _debug = state;
     processState.SetDebug(state);
-    if (_debug)
-    {
-        debugPrintln("Motor " + _cfg->name + " - Debugging Enabled");
-    }
+
 }
 
 void Motor::debugPrintln(String msg)
 {
     if (_debug)
     {
-        SerialLogging::info(msg.c_str());
+        String fullMsg = _motorPrefix + msg;
+        SerialLogging::info(fullMsg.c_str());
     }
 }
 

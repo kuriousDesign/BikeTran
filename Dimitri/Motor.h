@@ -128,6 +128,8 @@ private:
     bool _enableReq = false;
     bool _disableReq = false;
 
+    String _motorPrefix;
+
     StateManager processState = StateManager("processState");
 
     bool _firstScan = false;

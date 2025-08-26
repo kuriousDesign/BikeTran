@@ -69,6 +69,11 @@ public:
         _errorsPresent = false;
     }
 
+    void resetStepTime()
+    {
+        _stepStartTime = millis();
+    }
+
     void run()
     {
         ErrorsPresent = _errorsPresent;

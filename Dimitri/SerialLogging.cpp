@@ -1,60 +1,86 @@
+// SerialLogging.cpp (Rewritten with custom byte-wise ring buffer)
 #include "SerialLogging.h"
-#include <RingBuf.h>
 
-RingBuf* SerialLogging::queue = nullptr;
-uint8_t SerialLogging::output_BUFFER[SerialLogging::BUFFER_SIZE];  // Manual definition of static buffer
-BufferedOutput SerialLogging::output(sizeof(SerialLogging::output_BUFFER), SerialLogging::output_BUFFER, DROP_IF_FULL);  // Manual init (drop if full; add false for AllOrNothing if needed)
-void SerialLogging::init() {
-  Serial.begin(115200);  // Or your baud rate
-  output.connect(Serial, 115200);
+uint8_t SerialLogging::queue[SerialLogging::BYTE_BUFFER_SIZE];
+volatile size_t SerialLogging::head = 0;
+volatile size_t SerialLogging::tail = 0;
+uint8_t SerialLogging::output_BUFFER[SerialLogging::BUFFER_SIZE];
+BufferedOutput SerialLogging::output(sizeof(SerialLogging::output_BUFFER), SerialLogging::output_BUFFER, DROP_IF_FULL);
 
-  queue = RingBuf_new(MAX_MSG_SIZE, QUEUE_LENGTH);
-  if (queue == nullptr) {
-    // Handle allocation failure - reduce memory usage or check available RAM
-    Serial.println("ERROR: Failed to allocate logging queue");
-    
-    // Try with smaller parameters
-    queue = RingBuf_new(MAX_MSG_SIZE, QUEUE_LENGTH / 2);
-    if (queue == nullptr) {
-      Serial.println("ERROR: Even reduced allocation failed");
-      while (true) {}  // Halt
-    } else {
-      Serial.println("WARNING: Using reduced queue size");
-    }
+bool SerialLogging::isFull() {
+  return ((tail + 1) % BYTE_BUFFER_SIZE) == head;  // Leave one slot empty to distinguish full/empty
+}
+
+bool SerialLogging::isEmpty() {
+  return head == tail;
+}
+
+bool SerialLogging::pushByte(uint8_t byte) {
+  if (isFull()) {
+    return false;  // Full: Drop
   }
+  queue[tail] = byte;
+  tail = (tail + 1) % BYTE_BUFFER_SIZE;
+  return true;
+}
+
+bool SerialLogging::popByte(uint8_t& byte) {
+  if (isEmpty()) {
+    return false;  // Empty: Nothing to pop
+  }
+  byte = queue[head];
+  head = (head + 1) % BYTE_BUFFER_SIZE;
+  return true;
+}
+
+void SerialLogging::init() {
+  Serial.begin(115200);
+  output.connect(Serial, 115200);
+  head = 0;
+  tail = 0;  // Reset indices
 }
 
 void SerialLogging::add(const char* fmt, ...) {
   char msg[MAX_MSG_SIZE];
   va_list args;
   va_start(args, fmt);
-  vsnprintf(msg, MAX_MSG_SIZE, fmt, args);  // Format safely (no newline added)
+  vsnprintf(msg, MAX_MSG_SIZE, fmt, args);
   va_end(args);
 
-  // Add to queue (interrupt-safe per library)
-  if (queue->add(queue, msg) == 0) {
-    // Queue full: Optionally handle (e.g., drop silently or log error)
+  size_t len = strlen(msg);
+  noInterrupts();  // Protect the batch push
+  bool canAdd = true;
+  for (size_t i = 0; i < len; ++i) {
+    if (!pushByte(static_cast<uint8_t>(msg[i]))) {
+      canAdd = false;
+      break;  // Drop partial if full (or rollback if needed, but simple drop for now)
+    }
   }
+  interrupts();
 }
 
 void SerialLogging::info(const char* fmt, ...) {
   char msg[MAX_MSG_SIZE];
   va_list args;
   va_start(args, fmt);
-  vsnprintf(msg, MAX_MSG_SIZE, fmt, args);  // Format safely
+  vsnprintf(msg, MAX_MSG_SIZE, fmt, args);
   va_end(args);
 
-  // Append newline if there's space
   size_t len = strlen(msg);
-  if (len < MAX_MSG_SIZE - 1) {  // Ensure room for '\n' and null terminator
-    msg[len] = '\n';
-    msg[len + 1] = '\0';
+  if (len < MAX_MSG_SIZE - 1) {  // Append newline if space
+    msg[len++] = '\n';
+    msg[len] = '\0';
   }
 
-  // Add to queue (interrupt-safe per library)
-  if (queue->add(queue, msg) == 0) {
-    // Queue full: Optionally handle (e.g., drop silently or log error)
+  noInterrupts();  // Protect the batch push
+  bool canAdd = true;
+  for (size_t i = 0; i < len; ++i) {
+    if (!pushByte(static_cast<uint8_t>(msg[i]))) {
+      canAdd = false;
+      break;
+    }
   }
+  interrupts();
 }
 
 void SerialLogging::warn(const char* fmt, ...) {
@@ -64,29 +90,30 @@ void SerialLogging::warn(const char* fmt, ...) {
   vsnprintf(msg, MAX_MSG_SIZE, fmt, args);
   va_end(args);
 
-  // Prepend "WARNING: " to the message
-  const char* warnPrefix = "WARNING: ";
-  size_t prefixLen = strlen(warnPrefix);
+  const char* prefix = "WARNING: ";
+  size_t prefixLen = strlen(prefix);
   size_t msgLen = strlen(msg);
-
   if (prefixLen + msgLen < MAX_MSG_SIZE - 1) {
-    // Shift the original message to make room for the prefix
     memmove(msg + prefixLen, msg, msgLen + 1);
-    memcpy(msg, warnPrefix, prefixLen);
+    memcpy(msg, prefix, prefixLen);
+    msgLen += prefixLen;
   }
 
-  // Append newline if there's space
-  size_t totalLen = strlen(msg);
-  if (totalLen < MAX_MSG_SIZE - 1) {
-    msg[totalLen] = '\n';
-    msg[totalLen + 1] = '\0';
+  if (msgLen < MAX_MSG_SIZE - 1) {
+    msg[msgLen++] = '\n';
+    msg[msgLen] = '\0';
   }
 
-  if (queue->add(queue, msg) == 0) {
-    // Queue full: Optionally handle
+  noInterrupts();
+  bool canAdd = true;
+  for (size_t i = 0; i < msgLen; ++i) {
+    if (!pushByte(static_cast<uint8_t>(msg[i]))) {
+      canAdd = false;
+      break;
+    }
   }
+  interrupts();
 }
-
 
 void SerialLogging::error(const char* fmt, ...) {
   char msg[MAX_MSG_SIZE];
@@ -95,53 +122,41 @@ void SerialLogging::error(const char* fmt, ...) {
   vsnprintf(msg, MAX_MSG_SIZE, fmt, args);
   va_end(args);
 
-  // Prepend "ERROR: " to the message
-  const char* errorPrefix = "ERROR: ";
-  size_t prefixLen = strlen(errorPrefix);
+  const char* prefix = "ERROR: ";
+  size_t prefixLen = strlen(prefix);
   size_t msgLen = strlen(msg);
-
   if (prefixLen + msgLen < MAX_MSG_SIZE - 1) {
-    // Shift the original message to make room for the prefix
     memmove(msg + prefixLen, msg, msgLen + 1);
-    memcpy(msg, errorPrefix, prefixLen);
+    memcpy(msg, prefix, prefixLen);
+    msgLen += prefixLen;
   }
 
-  // Append newline if there's space
-  size_t totalLen = strlen(msg);
-  if (totalLen < MAX_MSG_SIZE - 1) {
-    msg[totalLen] = '\n';
-    msg[totalLen + 1] = '\0';
+  if (msgLen < MAX_MSG_SIZE - 1) {
+    msg[msgLen++] = '\n';
+    msg[msgLen] = '\0';
   }
 
-  if (queue->add(queue, msg) == 0) {
-    // Queue full: Optionally handle
+  noInterrupts();
+  bool canAdd = true;
+  for (size_t i = 0; i < msgLen; ++i) {
+    if (!pushByte(static_cast<uint8_t>(msg[i]))) {
+      canAdd = false;
+      break;
+    }
   }
+  interrupts();
 }
 
 void SerialLogging::process() {
-  char msg[MAX_MSG_SIZE];
-  static char* currentMsg = nullptr;
-  static size_t currentPos = 0;
-  
-  // If no message is currently being sent, try to get a new one
-  if (currentMsg == nullptr && !queue->isEmpty(queue)) {
-    if (queue->pull(queue, msg) != nullptr) {
-      currentMsg = msg;
-      currentPos = 0;
+  uint8_t byteVal;
+  while (output.availableForWrite() > 0) {
+    noInterrupts();  // Protect pop
+    if (!popByte(byteVal)) {
+      interrupts();
+      break;  // Empty: Stop
     }
+    interrupts();
+    output.write(byteVal);  // Add byte to BufferedOutput
   }
-  
-  // Send one byte if we have a message and output is ready
-  if (currentMsg != nullptr && output.availableForWrite() > 0) {
-    if (currentPos < strlen(currentMsg)) {
-      output.print(currentMsg[currentPos]);
-      currentPos++;
-    } else {
-      // Message complete, reset for next message
-      currentMsg = nullptr;
-      currentPos = 0;
-    }
-  }
-  
-  output.nextByteOut();
+  output.nextByteOut();  // Release bytes to Serial non-blockingly
 }

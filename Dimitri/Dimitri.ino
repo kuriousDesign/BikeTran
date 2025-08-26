@@ -1,5 +1,5 @@
-#define SCAN_TIME_US 1000  // how frequently the loop updates
-#define UPDATE_TIME_US 2000 // time that the motor velocities are updated, motor run() are called at half this rate
+#define SCAN_TIME_US 3000  // how frequently the loop updates
+#define UPDATE_TIME_US 333 // time that the motor velocities are updated, motor run() are called at half this rate
 #define NUM_MOTORS 3
 
 enum Motors
@@ -1138,7 +1138,7 @@ void loop()
   
 
   unsigned long timeNowUs = micros();
-  if (false && (timeNowUs - lastUpdateScanUs) > UPDATE_TIME_US) {
+  if ((timeNowUs - lastUpdateScanUs) > UPDATE_TIME_US) {
     updateMotors();
     lastUpdateScanUs = timeNowUs;
   }
@@ -1150,8 +1150,6 @@ void loop()
       // SerialLogging::info("WARNING: long scan time detected: " + String(timeNowUs - lastUpdateUs) + "usec");
     }
     lastUpdateUs = timeNowUs;
-
-
     motors[motorIdLoop].run();
     motorIdLoop = (motorIdLoop + 1) % NUM_MOTORS;
 
