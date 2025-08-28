@@ -1,5 +1,5 @@
 // #define SCAN_TIME_US 500  // how frequently the loop updates
-#define UPDATE_TIME_US 400 // time that the motor velocities are updated, motor run() are called at half this rate
+#define UPDATE_TIME_US 500 // time that the motor velocities are updated, motor run() are called at half this rate
 #define NUM_MOTORS 3
 
 enum Motors
@@ -662,32 +662,35 @@ void runClutchMotorManualMode()
 {
   static double lastPosition = 0.0;
 
-  if (inputs.ShiftUpSw)
+  if (true || inputs.ShiftUpSw)
   {
     // disengageClutch();
     motors[Motors::CLUTCH].enable();
-    motors[Motors::CLUTCH].jogUsingPower(MANUAL_CLUTCH_JOG_PWR);
+        if (motors[Motors::CLUTCH].getState() == Motor::States::IDLE || motors[Motors::CLUTCH].getState() == Motor::States::JOGGING)
+    {
+      motors[Motors::CLUTCH].jogUsingPower(MANUAL_CLUTCH_JOG_PWR);
+      SerialLogging::info("%f deg", motors[Motors::CLUTCH].actualPosition);
+    }
     if (motors[Motors::CLUTCH].actualPosition < lastPosition)
     {
       SerialLogging::error("clutch motor position decreased when it was expected to increase");
-    }
-    else
-    {
-      SerialLogging::info("jogging clutch motor positively - position: %f deg", motors[Motors::CLUTCH].actualPosition);
+      loopState.transitionToStep(Modes::ERROR);
     }
   }
   else if (inputs.ShiftDownSw)
   {
     // disengageClutch();
     motors[Motors::CLUTCH].enable();
-    motors[Motors::CLUTCH].jogUsingPower(-MANUAL_CLUTCH_JOG_PWR);
+    if (motors[Motors::CLUTCH].getState() == Motor::States::IDLE || motors[Motors::CLUTCH].getState() == Motor::States::JOGGING)
+    {
+      motors[Motors::CLUTCH].jogUsingPower(-MANUAL_CLUTCH_JOG_PWR);
+      SerialLogging::info("%f deg", motors[Motors::CLUTCH].actualPosition);
+    }
+
     if (motors[Motors::CLUTCH].actualPosition > lastPosition)
     {
       SerialLogging::error("clutch motor position increased when it was expected to decrease");
-    }
-    else
-    {
-      SerialLogging::info("jogging clutch motor negatively - position: %f deg", motors[Motors::CLUTCH].actualPosition);
+      loopState.transitionToStep(Modes::ERROR);
     }
   }
   else
@@ -1469,7 +1472,7 @@ void loop()
         break;
 
       case Modes::MANUAL:
-        
+
         if (loopState.FirstScan)
         {
           disengageClutch(true);
@@ -1478,7 +1481,7 @@ void loop()
         switch (OPERATING_MODE)
         {
         case OperatingModes::MANUAL_CLUTCH_JOGGING:
-         loopState.StepDescription("MANUAL - manual clutch jogging - use up/down");
+          loopState.StepDescription("MANUAL - manual clutch jogging - use up/down");
           runClutchMotorManualMode();
           break;
         case OperatingModes::MANUAL_CLUTCH_ENGAGE:
@@ -1489,11 +1492,11 @@ void loop()
           }
           break;
         case OperatingModes::MANUAL_LINEAR_P:
-        loopState.StepDescription("MANUAL - manual linear P jogging - use up/down");
+          loopState.StepDescription("MANUAL - manual linear P jogging - use up/down");
           runLinearMotorManualMode(Motors::LINEAR_P);
           break;
         case OperatingModes::MANUAL_LINEAR_S:
-        loopState.StepDescription("MANUAL - manual linear S jogging - use up/down");
+          loopState.StepDescription("MANUAL - manual linear S jogging - use up/down");
           runLinearMotorManualMode(Motors::LINEAR_S);
           break;
         }
