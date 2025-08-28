@@ -7,6 +7,7 @@
 #include "StateManager.h"
 
 #define NUM_FILTER_POINTS 5
+#define MOTOR_DATA_SIZE 14
 
 class Motor
 {
@@ -103,6 +104,7 @@ public:
     bool disable();
     bool hold_position();
     bool home();
+    byte* getMotorData();
 
     void init();
     double error;

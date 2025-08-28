@@ -25,6 +25,33 @@ enum OperatingModes
   MANUAL_CLUTCH_ENGAGE = 5,
 };
 
+String getOperatingModeToString(OperatingModes mode)
+{
+    switch (mode)
+    {
+    case AUTO:
+        return "AUTO";
+
+    case MANUAL_CLUTCH_JOGGING:
+        return "MANUAL_CLUTCH_JOGGING";
+
+    case MANUAL_LINEAR_P:
+        return "MANUAL_LINEAR_P";
+
+    case MANUAL_LINEAR_S:
+        return "MANUAL_LINEAR_S";
+
+    case IO_CHECKOUT:
+        return "IO_CHECKOUT";
+
+    case MANUAL_CLUTCH_ENGAGE:
+        return "MANUAL_CLUTCH_ENGAGE";
+
+    default:
+        return "UNKNOWN";
+    }
+}
+
 enum Events : int
 {
     NONE_EVENT = 0,
@@ -108,5 +135,11 @@ struct StopWatch
     unsigned int maxLoopTime = 0;
     unsigned int loopCnt = 0;
 };
+
+struct CmdData
+{
+
+};
+
 
 #endif

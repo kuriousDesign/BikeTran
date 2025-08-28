@@ -42,8 +42,8 @@ public:
             if (_debugEnabled)
             {
                 //Serial.println(_name + " Step: " + _step);// + " - " + _stepDescription);
-                //SerialLogging::info("%s Step: %d - %s", _name.c_str(), _step, _stepDescription.c_str());
-                SerialLogging::info("%s Step: %d", _name.c_str(), _step);
+                SerialLogging::info("%s Step: %d - %s", _name.c_str(), _step, _stepDescription.c_str());
+                //SerialLogging::info("%s Step: %d", _name.c_str(), _step);
             }
         }
     }

@@ -147,6 +147,29 @@ void SerialLogging::error(const char* fmt, ...) {
   interrupts();
 }
 
+// prepend with data header
+void SerialLogging::publishData(byte* &data, size_t len, const char* header) {
+  if (len + strlen(header) > MAX_MSG_SIZE) {
+    SerialLogging::warn("publishData: Data length %u exceeds max %u", len + strlen(header), MAX_MSG_SIZE);
+  }
+  
+  noInterrupts();
+  // push header
+  for (size_t i = 0; i < strlen(header); ++i) {
+    pushByte(static_cast<uint8_t>(header[i]));
+  }
+
+  bool canAdd = true;
+  for (size_t i = 0; i < len; ++i) {
+    if (!pushByte(static_cast<uint8_t>(data[i]))) {
+      canAdd = false;
+      break;
+    }
+  }
+  pushByte('\n'); // append newline
+  interrupts();
+}
+
 void SerialLogging::process() {
   uint8_t byteVal;
   while (output.availableForWrite() > 0) {

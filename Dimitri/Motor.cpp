@@ -756,8 +756,39 @@ void Motor::setDebug(bool state)
     }
     _debug = state;
     processState.SetDebug(state);
-
 }
+
+// gather motor data and convert into byte chunk, total bytes = int16, float, float, float = 14
+byte* Motor::getMotorData(){
+    byte* data = new byte[MOTOR_DATA_SIZE];
+    unsigned int i = 0;
+    unsigned long size = 0;
+    float tmpFloat = 0.0f;
+
+    // motor state - int16 (2bytes)
+    size = sizeof(_state);
+    memcpy(data + i, &_state, size);
+    i += size;
+
+    // motor position - float (4bytes)
+    size = sizeof(tmpFloat);
+    tmpFloat = actualPosition;
+    memcpy(data + i, &tmpFloat, size);
+    i += size;
+
+    // motor velocity - float (4bytes)
+    size = sizeof(tmpFloat);
+    tmpFloat = actualVelocity;
+    memcpy(data + i, &tmpFloat, size);
+    i += size;
+
+    // motor target position - float (4bytes)
+    size = sizeof(tmpFloat);
+    tmpFloat = targetPosition;
+    memcpy(data + i, &tmpFloat, size);
+    return data;
+}
+
 
 void Motor::debugPrintln(String msg)
 {
