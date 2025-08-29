@@ -31,6 +31,7 @@ enum DiagnosticModes
 const OperatingModes OPERATING_MODE = OperatingModes::MANUAL_CLUTCH_JOGGING; // set to OperatingModes::AUTO to run the system in debug mode
 const DiagnosticModes DIAGNOSTIC_MODE = DiagnosticModes::SERIAL_OUTPUT;
 
+const double MANUAL_LINEAR_JOG_PWR = 60.0;
 const double MANUAL_CLUTCH_JOG_PWR = 70.0;
 const double LinearHomingPwr = 100.0;
 const int LinearNudgeTimeMsDuringHomingJog = 50;
@@ -120,6 +121,7 @@ Encoder encoders[NUM_MOTORS] = {
     Encoder(PIN_LINEAR_P_ENC_A, PIN_LINEAR_P_ENC_B),
     Encoder(PIN_LINEAR_S_ENC_A, PIN_LINEAR_S_ENC_B)};
 
+// 394.68deg reading after 360.0 deg rotation.
 const double CLUTCH_PULSES_PER_UNIT = 2.0 * 445.12 / 360.0; // 480.0 / 360.0; //120PPR /360deg for the 600rpm motor
 // notes from joe on AUG 19 2025 - 12mm per turn, 6.62 mm per gear
 const double LINEAR_P_PULSES_PER_UNIT = 1.0; // 14.0 / 11.0 * 2.0 * 8600.0 / (double(NUM_GEARS) - 1.0); // 9200 is the max position, 488 is the min position
@@ -137,14 +139,14 @@ Motor::Cfg clutchMotorCfg = {
   maxVelocity : 1000.0,                   // max velocity
   softLimitPositive : 721.0,              // soft limit positive
   softLimitNegative : -721.0,             // soft limit negative
-  invertEncoderDir : true,                // invert encoder
+  invertEncoderDir : false,               // invert encoder
   encoderRollover : false,                // enable encoder rollover
   invertMotorDir : true,                  // invert motor direction
   positionTol : 3.0,                      // position tolerance
   zeroVelocityTol : 5.0,                  // zero velocity tolerance, units/sec
   kP : 10.0,                              // kP
   kD : 1.0,                               // kD
-  nudgeTimeMs : 20,                       // nudge time
+  nudgeTimeMs : 50.0,                     // nudge time
   nudgePower : 100.0                      // nudge power
 
 };
@@ -303,7 +305,6 @@ void setup()
   }
   // Timer1.initialize(UPDATE_TIME_US); // Initialize timer to trigger every X microseconds
   // Timer1.attachInterrupt(updateMotors, UPDATE_TIME_US);
-  
 }
 
 // TASK: MOVE CLUTCH TO SHIFTING POSITION
@@ -751,33 +752,38 @@ bool moveLinearMotorsToGear(int8_t targetGear, bool reset = false)
   return false;
 }
 
-void runLinearMotorManualMode(uint8_t motorId)
+void runLinearMotorManualMode(uint8_t motor_id)
 {
-
   bool clutchIsDisengaged = true; // disengageClutch();
-
-  if (inputs.ShiftUpSw && clutchIsDisengaged)
+  motors[motor_id].enable();
+  if (!motors[motor_id].getState() == Motor::States::IDLE || !motors[motor_id].getState() == Motor::States::JOGGING){
+    //wait for enable to kick in;
+  }
+  else if (inputs.ShiftUpSw && clutchIsDisengaged)
   {
     // analogWrite(PIN_LINEAR_P_PWM, 255);
     // digitalWrite(PIN_LINEAR_P_DIR, !motorCfgs[Motors::LINEAR].invertDir);
-    motors[motorId].enable();
-    motors[motorId].jogUsingPower(MANUAL_CLUTCH_JOG_PWR);
-    SerialLogging::info("jogging motor %d positively - position: %f deg", motorId, motors[motorId].actualPosition);
+    String infoMsgUp = String(motors[Motors::CLUTCH].actualPosition) + " deg";
+    SerialLogging::info(infoMsgUp.c_str());
+    motors[motor_id].jogUsingPower(MANUAL_LINEAR_JOG_PWR);
+    // SerialLogging::info("jogging motor %d positively - position: %f deg", motor_id, motors[motor_id].actualPosition);
+
     // motors[Motors::LINEAR].moveAbs(11.0);
   }
   else if (inputs.ShiftDownSw && clutchIsDisengaged)
   {
     // analogWrite(PIN_LINEAR_P_PWM, 255);
     // digitalWrite(PIN_LINEAR_P_DIR, motorCfgs[Motors::LINEAR].invertDir);
-    motors[motorId].enable();
-    motors[motorId].jogUsingPower(-MANUAL_CLUTCH_JOG_PWR);
-    SerialLogging::info("jogging motor %d negatively - position: %f deg", motorId, motors[motorId].actualPosition);
-    // motors[Motors::LINEAR].moveAbs(6.0);
+    String infoMsgDown = String(motors[Motors::CLUTCH].actualPosition) + " deg";
+    SerialLogging::info(infoMsgDown.c_str());
+    motors[motor_id].jogUsingPower(-MANUAL_LINEAR_JOG_PWR);
+    // SerialLogging::info("jogging motor %d negatively - position: %f deg", motor_id, motors[motor_id].actualPosition);
+    //  motors[Motors::LINEAR].moveAbs(6.0);
   }
   else
   {
     // digitalWrite(PIN_LINEAR_P_PWM, LOW);
-    motors[motorId].stop();
+    motors[motor_id].stop();
     // motors[Motors::LINEAR].disable();
   }
 }
