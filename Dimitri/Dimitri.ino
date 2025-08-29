@@ -28,10 +28,10 @@ enum DiagnosticModes
 #include "SerialLogging.h"
 
 // OPERATING MODES: IO_CHECKOUT, MANUAL_CLUTCH_JOGGING, MANUAL_CLUTCH_ENGAGE, MANUAL_LINEAR_P, MANUAL_LINEAR_S, AUTO
-const OperatingModes OPERATING_MODE = OperatingModes::MANUAL_CLUTCH_JOGGING; // set to OperatingModes::AUTO to run the system in debug mode
+const OperatingModes OPERATING_MODE = OperatingModes::MANUAL_LINEAR_S; // set to OperatingModes::AUTO to run the system in debug mode
 const DiagnosticModes DIAGNOSTIC_MODE = DiagnosticModes::SERIAL_OUTPUT;
 
-const double MANUAL_LINEAR_JOG_PWR = 60.0;
+const double MANUAL_LINEAR_JOG_PWR = 30.0;
 const double MANUAL_CLUTCH_JOG_PWR = 70.0;
 const double LinearHomingPwr = 100.0;
 const int LinearNudgeTimeMsDuringHomingJog = 50;
@@ -39,8 +39,8 @@ const double ClutchHoldingPwr = 25.0;
 const int clutchSolenoidJostleTimeMs = 20;
 const double LinearKp = 500.0; //@11.05VDC
 const double LinearKd = 0.0;
-uint16_t LinearNudgeTimeMs = 4; // 15
-const double LinearNudgePower = 100.0;
+uint16_t LinearNudgeTimeMs = 5; // 15
+const double LinearNudgePower = 80.0;
 const double POSITION_CLUTCH_PEDALING = 0.0;   // deg
 const double POSITION_CLUTCH_SHIFTING = 228.0; // deg
 const double LINEAR_P_HOME_OFFSET = 6.3;       // units is gears, distance (measured in gears) to move away from limit switch in order to be in 1st Gear
@@ -658,21 +658,21 @@ void serializeFaultData(FaultData *msgPacket, char *data)
   // }
 }
 // USED FOR MANUAL MODE - jogs motor at 100% pwr with shift switches
-void runClutchMotorManualMode()
+void runMotorManualMode(int motor_id)
 {
   static double lastPosition = 0.0;
 
   if (inputs.ShiftUpSw)
   {
     // disengageClutch();
-    motors[Motors::CLUTCH].enable();
-    if (motors[Motors::CLUTCH].getState() == Motor::States::IDLE || motors[Motors::CLUTCH].getState() == Motor::States::JOGGING)
+    motors[motor_id].enable();
+    if (motors[motor_id].getState() == Motor::States::IDLE || motors[motor_id].getState() == Motor::States::JOGGING)
     {
-      motors[Motors::CLUTCH].jogUsingPower(MANUAL_CLUTCH_JOG_PWR);
-      String infoMsg = String(motors[Motors::CLUTCH].actualPosition) + " deg";
+      motors[motor_id].jogUsingPower(MANUAL_CLUTCH_JOG_PWR);
+      String infoMsg = String(motors[motor_id].actualPosition) + " deg";
       SerialLogging::info(infoMsg.c_str());
     }
-    if (motors[Motors::CLUTCH].actualPosition < lastPosition)
+    if (motors[motor_id].actualPosition < lastPosition)
     {
       SerialLogging::error("clutch motor position decreased when it was expected to increase");
       loopState.transitionToStep(Modes::ERROR);
@@ -681,15 +681,15 @@ void runClutchMotorManualMode()
   else if (inputs.ShiftDownSw)
   {
     // disengageClutch();
-    motors[Motors::CLUTCH].enable();
-    if (motors[Motors::CLUTCH].getState() == Motor::States::IDLE || motors[Motors::CLUTCH].getState() == Motor::States::JOGGING)
+    motors[motor_id].enable();
+    if (motors[motor_id].getState() == Motor::States::IDLE || motors[motor_id].getState() == Motor::States::JOGGING)
     {
-      motors[Motors::CLUTCH].jogUsingPower(-MANUAL_CLUTCH_JOG_PWR);
-      String infoMsgDown = String(motors[Motors::CLUTCH].actualPosition) + " deg";
+      motors[motor_id].jogUsingPower(-MANUAL_CLUTCH_JOG_PWR);
+      String infoMsgDown = String(motors[motor_id].actualPosition) + " deg";
       SerialLogging::info(infoMsgDown.c_str());
     }
 
-    if (motors[Motors::CLUTCH].actualPosition > lastPosition)
+    if (motors[motor_id].actualPosition > lastPosition)
     {
       SerialLogging::error("clutch motor position increased when it was expected to decrease");
       loopState.transitionToStep(Modes::ERROR);
@@ -697,10 +697,10 @@ void runClutchMotorManualMode()
   }
   else
   {
-    motors[Motors::CLUTCH].disable();
+    motors[motor_id].disable();
     // disengageClutch(true);
     // iSerial.resetModeTime();
-    lastPosition = motors[Motors::CLUTCH].actualPosition;
+    lastPosition = motors[motor_id].actualPosition;
     // if(dimitriCfg.hasClutchSolenoid){
     //   digitalWrite(PIN_CLUTCH_SOL, !SOL_ON);
     // }
@@ -763,7 +763,7 @@ void runLinearMotorManualMode(uint8_t motor_id)
   {
     // analogWrite(PIN_LINEAR_P_PWM, 255);
     // digitalWrite(PIN_LINEAR_P_DIR, !motorCfgs[Motors::LINEAR].invertDir);
-    String infoMsgUp = String(motors[Motors::CLUTCH].actualPosition) + " deg";
+    String infoMsgUp = String(motors[motor_id].actualPosition) + " deg";
     SerialLogging::info(infoMsgUp.c_str());
     motors[motor_id].jogUsingPower(MANUAL_LINEAR_JOG_PWR);
     // SerialLogging::info("jogging motor %d positively - position: %f deg", motor_id, motors[motor_id].actualPosition);
@@ -774,7 +774,7 @@ void runLinearMotorManualMode(uint8_t motor_id)
   {
     // analogWrite(PIN_LINEAR_P_PWM, 255);
     // digitalWrite(PIN_LINEAR_P_DIR, motorCfgs[Motors::LINEAR].invertDir);
-    String infoMsgDown = String(motors[Motors::CLUTCH].actualPosition) + " deg";
+    String infoMsgDown = String(motors[motor_id].actualPosition) + " deg";
     SerialLogging::info(infoMsgDown.c_str());
     motors[motor_id].jogUsingPower(-MANUAL_LINEAR_JOG_PWR);
     // SerialLogging::info("jogging motor %d negatively - position: %f deg", motor_id, motors[motor_id].actualPosition);
@@ -783,7 +783,7 @@ void runLinearMotorManualMode(uint8_t motor_id)
   else
   {
     // digitalWrite(PIN_LINEAR_P_PWM, LOW);
-    motors[motor_id].stop();
+    motors[motor_id].disable();
     // motors[Motors::LINEAR].disable();
   }
 }
@@ -1488,7 +1488,7 @@ void loop()
         {
         case OperatingModes::MANUAL_CLUTCH_JOGGING:
           loopState.StepDescription("MANUAL - manual clutch jogging - use up/down");
-          runClutchMotorManualMode();
+          runMotorManualMode(Motors::CLUTCH);
           break;
         case OperatingModes::MANUAL_CLUTCH_ENGAGE:
           if (inputs.ShiftUpSw)
@@ -1499,11 +1499,11 @@ void loop()
           break;
         case OperatingModes::MANUAL_LINEAR_P:
           loopState.StepDescription("MANUAL - manual linear P jogging - use up/down");
-          runLinearMotorManualMode(Motors::LINEAR_P);
+          runMotorManualMode(Motors::LINEAR_P);
           break;
         case OperatingModes::MANUAL_LINEAR_S:
           loopState.StepDescription("MANUAL - manual linear S jogging - use up/down");
-          runLinearMotorManualMode(Motors::LINEAR_S);
+          runMotorManualMode(Motors::LINEAR_S);
           break;
         }
 
