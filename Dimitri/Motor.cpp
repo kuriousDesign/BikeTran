@@ -159,7 +159,7 @@ void Motor::run()
 
         // TODO: add sticky input to check if motor is stalled using isStill and checking prev and current encoder counts
 
-        if (_stopReq || !_jogReq)
+        if (_stopReq)
         {
             _nextState = States::STOPPING;
         }

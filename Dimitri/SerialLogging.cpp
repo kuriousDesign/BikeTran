@@ -70,6 +70,9 @@ void SerialLogging::info(const char* fmt, ...) {
   if (len < MAX_MSG_SIZE - 1) {  // Append newline if space
     msg[len++] = '\n';
     msg[len] = '\0';
+  } else {
+    msg[MAX_MSG_SIZE - 1] = '\n';
+    len = MAX_MSG_SIZE;
   }
 
   noInterrupts();  // Protect the batch push
@@ -102,6 +105,9 @@ void SerialLogging::warn(const char* fmt, ...) {
   if (msgLen < MAX_MSG_SIZE - 1) {
     msg[msgLen++] = '\n';
     msg[msgLen] = '\0';
+  } else {
+    msg[MAX_MSG_SIZE - 1] = '\n';
+    msgLen = MAX_MSG_SIZE;
   }
 
   noInterrupts();

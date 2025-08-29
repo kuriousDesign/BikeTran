@@ -269,9 +269,7 @@ void setup()
     motors[Motors::LINEAR_P].setDebug(true);
     motors[Motors::LINEAR_S].setDebug(true);
   }
-
   loopState.transitionToStep(Modes::ABORTING);
-
   pinMode(PIN_CLUTCH_POS_LIM, INPUT_PULLUP);
   pinMode(PIN_CLUTCH_NEG_LIM, INPUT_PULLUP);
   pinMode(PIN_SHIFT_UP, INPUT_PULLUP);
@@ -305,6 +303,7 @@ void setup()
   }
   // Timer1.initialize(UPDATE_TIME_US); // Initialize timer to trigger every X microseconds
   // Timer1.attachInterrupt(updateMotors, UPDATE_TIME_US);
+  
 }
 
 // TASK: MOVE CLUTCH TO SHIFTING POSITION
@@ -662,14 +661,15 @@ void runClutchMotorManualMode()
 {
   static double lastPosition = 0.0;
 
-  if (true || inputs.ShiftUpSw)
+  if (inputs.ShiftUpSw)
   {
     // disengageClutch();
     motors[Motors::CLUTCH].enable();
-        if (motors[Motors::CLUTCH].getState() == Motor::States::IDLE || motors[Motors::CLUTCH].getState() == Motor::States::JOGGING)
+    if (motors[Motors::CLUTCH].getState() == Motor::States::IDLE || motors[Motors::CLUTCH].getState() == Motor::States::JOGGING)
     {
       motors[Motors::CLUTCH].jogUsingPower(MANUAL_CLUTCH_JOG_PWR);
-      SerialLogging::info("%f deg", motors[Motors::CLUTCH].actualPosition);
+      String infoMsg = String(motors[Motors::CLUTCH].actualPosition) + " deg";
+      SerialLogging::info(infoMsg.c_str());
     }
     if (motors[Motors::CLUTCH].actualPosition < lastPosition)
     {
@@ -684,7 +684,8 @@ void runClutchMotorManualMode()
     if (motors[Motors::CLUTCH].getState() == Motor::States::IDLE || motors[Motors::CLUTCH].getState() == Motor::States::JOGGING)
     {
       motors[Motors::CLUTCH].jogUsingPower(-MANUAL_CLUTCH_JOG_PWR);
-      SerialLogging::info("%f deg", motors[Motors::CLUTCH].actualPosition);
+      String infoMsgDown = String(motors[Motors::CLUTCH].actualPosition) + " deg";
+      SerialLogging::info(infoMsgDown.c_str());
     }
 
     if (motors[Motors::CLUTCH].actualPosition > lastPosition)
@@ -1472,7 +1473,6 @@ void loop()
         break;
 
       case Modes::MANUAL:
-
         if (loopState.FirstScan)
         {
           disengageClutch(true);
@@ -1544,6 +1544,7 @@ void loop()
       updatePublishedDataChunk();
       SerialLogging::publishData(publishedData, MOTOR_DATA_SIZE * 3, "UI");
     }
+    SerialLogging::process();
   }
   else
   {

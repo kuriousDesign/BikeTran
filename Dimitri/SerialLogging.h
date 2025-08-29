@@ -10,14 +10,14 @@
 
 class SerialLogging {
 private:
-  static const size_t BYTE_BUFFER_SIZE = 2048/2;  // Total bytes in custom ring buffer (power of 2 for modulo efficiency)
+  static const size_t BYTE_BUFFER_SIZE = 2048/4;  // Total bytes in custom ring buffer (power of 2 for modulo efficiency)
   static uint8_t queue[BYTE_BUFFER_SIZE];       // Static byte array for the ring buffer
   static volatile size_t head;                  // Read index (where to pop from)
   static volatile size_t tail;                  // Write index (where to push to)
   static const size_t BUFFER_SIZE = 512 + 4;    // Output buffer size (+4 for dropMark)
   static uint8_t output_BUFFER[BUFFER_SIZE];    // Manual static buffer for BufferedOutput
   static BufferedOutput output;                 // Non-blocking output buffer
-  static const size_t MAX_MSG_SIZE = 128;       // Max chars per formatted message (including null terminator)
+  static const size_t MAX_MSG_SIZE = 128/2;       // Max chars per formatted message (including null terminator)
 
   // Internal helpers for custom ring buffer
   static bool isFull();                         // Check if buffer is full
