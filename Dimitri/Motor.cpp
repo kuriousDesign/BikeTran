@@ -372,7 +372,7 @@ bool Motor::homeToSwitch(int8_t searchDir, Sensors sensorId, bool reset)
 
         case 20:
             processState.StepDescription("Moving off sensor");
-            jogUsingPower(searchDir * _cfg->homingPwr * 0.5);
+            jogUsingPower(searchDir * _cfg->homingPwr * 0.8);
             if (sensors[sensorId])
             {
                 processState.resetStepTime();
@@ -380,12 +380,17 @@ bool Motor::homeToSwitch(int8_t searchDir, Sensors sensorId, bool reset)
             else if (!sensors[sensorId] && processState.getStepActiveTime() > 50)
             {
                 debugPrintln("Sensor no longer triggered");
-                processState.transitionToStep(30);
+                stop();
+                processState.transitionToStep(21);
             }
             break;
+        case 21: 
+            if(_state == Motor::States::IDLE){
+                processState.transitionToStep(30);
+            }
         case 30:
             processState.StepDescription("Going to trigger sensor and record position");
-            jogUsingPower(-searchDir * _cfg->homingPwr * 0.5); // change this back to 0.5 TODO!!!!!!!!!
+            jogUsingPower(-searchDir * _cfg->homingPwr * 0.8); // change this back to 0.5 TODO!!!!!!!!!
             if (sensors[sensorId])
             {
                 debugPrintln("recorded position");

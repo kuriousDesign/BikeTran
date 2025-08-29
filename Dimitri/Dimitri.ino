@@ -28,7 +28,7 @@ enum DiagnosticModes
 #include "SerialLogging.h"
 
 // OPERATING MODES: IO_CHECKOUT, MANUAL_CLUTCH_JOGGING, MANUAL_CLUTCH_ENGAGE, MANUAL_LINEAR_P, MANUAL_LINEAR_S, AUTO
-const OperatingModes OPERATING_MODE = OperatingModes::MANUAL_LINEAR_S; // set to OperatingModes::AUTO to run the system in debug mode
+const OperatingModes OPERATING_MODE = OperatingModes::MANUAL_CLUTCH_ENGAGE; // set to OperatingModes::AUTO to run the system in debug mode
 const DiagnosticModes DIAGNOSTIC_MODE = DiagnosticModes::SERIAL_OUTPUT;
 
 const double MANUAL_LINEAR_JOG_PWR = 30.0;
@@ -47,7 +47,7 @@ const double LINEAR_P_HOME_OFFSET = 6.3;       // units is gears, distance (meas
 const double LINEAR_S_HOME_OFFSET = 0.3;       // units is gears, distance (measured in gears) to move away from limit switch in order to be in 1st Gear
 
 const unsigned long DELAY_LINEAR_MOTION_AFTER_CLUTCH_REACHES_SHIFT_POSITION_MS = 200; // ms, time to wait after clutch reaches shifting position before linear motor motion is allowed
-const bool AUTO_RESET = true;                                                         // if this is true, the system will automatically reset when inactive (no errors)
+const bool AUTO_RESET = false;                                                         // if this is true, the system will automatically reset when inactive (no errors)
 const bool SHIFT_BUTTONS_DISABLED = false;                                            // if this is true, the shift buttons will be disabled (ignored)
 const bool SIM_MODE = false;                                                          // set to true to simulate motor behavior (encoders positions for now, TODO: simulate lim switches)
 uint8_t motorId = 0;
@@ -156,7 +156,7 @@ Motor::Cfg linearPrimaryMotorCfg = {
   homingDir : Motor::HomingDir::POSITIVE,
   homingType : Motor::HomingType::HARDSTOP,
   homeOffsetFromZero : LINEAR_P_HOME_OFFSET, // units
-  homingPwr : 50.0,
+  homingPwr : 30.0,
   unit : "gear",
   pulsesPerUnit : LINEAR_P_PULSES_PER_UNIT,
   maxVelocity : 20.0,
@@ -178,7 +178,7 @@ Motor::Cfg linearSecondaryMotorCfg = {
   homingDir : Motor::HomingDir::NEGATIVE,
   homingType : Motor::HomingType::HARDSTOP,
   homeOffsetFromZero : LINEAR_S_HOME_OFFSET, // units
-  homingPwr : 50.0,
+  homingPwr : 30.0,
   unit : "gear",
   pulsesPerUnit : LINEAR_S_PULSES_PER_UNIT,
   maxVelocity : 20.0,
@@ -297,10 +297,10 @@ void setup()
     // SerialLogging::info("OPERATING MODE: IO_CHECKOUT");
     //  iSerial.debug = true;
     readInputs();
-    SerialLogging::info("state of clutch neg lim sw at the pedaling position: {}", inputs.ClutchNegLimSw ? "ON" : "OFF");
-    SerialLogging::info("state of clutch positive lim sw at the shifting position: {}", inputs.ClutchPosLimSw ? "ON" : "OFF");
-    SerialLogging::info("state of shift up switch: {}", inputs.ShiftUpSw ? "ON" : "OFF");
-    SerialLogging::info("state of shift down switch: {}", inputs.ShiftDownSw ? "ON" : "OFF");
+    Serial.println("state of clutch neg lim sw at the pedaling position: " + String(inputs.ClutchNegLimSw ? "ON" : "OFF"));
+    Serial.println("state of clutch positive lim sw at the shifting position: " + String(inputs.ClutchPosLimSw ? "ON" : "OFF"));
+    Serial.println("state of shift up switch: " + String(inputs.ShiftUpSw ? "ON" : "OFF"));
+    Serial.println("state of shift down switch: " + String(inputs.ShiftDownSw ? "ON" : "OFF"));
     delay(1000);
   }
   // Timer1.initialize(UPDATE_TIME_US); // Initialize timer to trigger every X microseconds
