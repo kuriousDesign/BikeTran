@@ -3,7 +3,7 @@
 
 #include <Arduino.h>
 #include <Encoder.h>
-#include <TimerOne.h>
+//#include <TimerOne.h>
 #include "StateManager.h"
 
 #define NUM_FILTER_POINTS 5

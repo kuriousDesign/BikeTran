@@ -1,10 +1,10 @@
 #include "Motor.h"
 #include <Encoder.h>
-#include <TimerOne.h>
+//#include <TimerOne.h>
 #include <Arduino.h>
 #include "StateManager.h"
 // Constructor
-Motor::Motor(uint8_t dirPin, uint8_t speedPin, Encoder *encoder, Cfg *cfg, bool simMode, uint8_t dir2Pin = DUMMY_PIN, uint8_t homeSwPin = DUMMY_PIN)
+Motor::Motor(uint8_t dirPin, uint8_t speedPin, Encoder *encoder, Cfg *cfg, bool simMode, uint8_t dir2Pin, uint8_t homeSwPin)
     : _dirPin(dirPin), _speedPin(speedPin), _encoder(encoder), _cfg(cfg), _simMode(simMode), _dir2Pin(dir2Pin), _homeSwPin(homeSwPin)
 {
     init();
@@ -236,7 +236,7 @@ void Motor::run()
     _disableReq = false;
 }
 
-bool Motor::homeToHardstop(int8_t dir, bool reset = false)
+bool Motor::homeToHardstop(int8_t dir, bool reset)
 {
     processState.run();
     static double max_position = 0.0;
@@ -610,7 +610,7 @@ double Motor::pdControl()
 }
 
 // this will set the _isNudging flag
-void Motor::checkIsNudging(bool isJogging = false)
+void Motor::checkIsNudging(bool isJogging)
 {
     // check nudging
     _isNudging = false;

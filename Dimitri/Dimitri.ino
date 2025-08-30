@@ -1,4 +1,4 @@
-#define VERSION_NUMBER 33
+#define VERSION_NUMBER 34
 
 // #define SCAN_TIME_US 500  // how frequently the loop updates
 #define UPDATE_TIME_US 500 // time that the motor velocities are updated, motor run() are called at half this rate
@@ -27,7 +27,7 @@ enum DiagnosticModes
 #include "CustomDataTypes.h"
 #include "GearMap.h"
 #include "Motor.h"
-#include "TimerOne.h"
+//#include "TimerOne.h"
 #include "SerialLogging.h"
 
 // OPERATING MODES: IO_CHECKOUT, MANUAL_CLUTCH_JOGGING, MANUAL_CLUTCH_ENGAGE, MANUAL_LINEAR_P, MANUAL_LINEAR_S, AUTO
@@ -724,11 +724,12 @@ bool moveLinearMotorsToGear(int8_t targetGear, bool reset = false)
   }
   else
   {
+    int8_t *gearPositions = gearMap.getGearPositions(shiftData.targetGear);
     switch (stateGearMove.Step)
     {
     case 0:
       stateGearMove.StepDescription("Moving linear motors to target gear position");
-      int8_t *gearPositions = gearMap.getGearPositions(shiftData.targetGear);
+      
       motors[Motors::LINEAR_P].moveAbs(gearPositions[0]);
       motors[Motors::LINEAR_S].moveAbs(gearPositions[1]);
       if (motors[Motors::LINEAR_P].getState() == Motor::States::MOVING && motors[Motors::LINEAR_S].getState() == Motor::States::MOVING)
@@ -1285,7 +1286,7 @@ void loop()
           }
           if (loopState.getStepActiveTime() > 3000 && false)
           {
-            SerialLogging::error("ERROR: %s", errors.list[0]);
+            SerialLogging::error("ERROR: %s", errors.list[0].c_str());
           }
         }
 
