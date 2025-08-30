@@ -17,7 +17,7 @@ private:
   static const size_t BUFFER_SIZE = 512 + 4;    // Output buffer size (+4 for dropMark)
   static uint8_t output_BUFFER[BUFFER_SIZE];    // Manual static buffer for BufferedOutput
   static BufferedOutput output;                 // Non-blocking output buffer
-  static const size_t MAX_MSG_SIZE = 128/2;       // Max chars per formatted message (including null terminator)
+  static const size_t MAX_MSG_SIZE = 100;       // Max chars per formatted message (including null terminator)
 
   // Internal helpers for custom ring buffer
   static bool isFull();                         // Check if buffer is full
