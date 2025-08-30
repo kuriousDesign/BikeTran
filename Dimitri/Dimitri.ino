@@ -1,6 +1,9 @@
+#define VERSION_NUMBER 33
+
 // #define SCAN_TIME_US 500  // how frequently the loop updates
 #define UPDATE_TIME_US 500 // time that the motor velocities are updated, motor run() are called at half this rate
 #define NUM_MOTORS 3
+
 
 enum Motors
 {
@@ -28,7 +31,7 @@ enum DiagnosticModes
 #include "SerialLogging.h"
 
 // OPERATING MODES: IO_CHECKOUT, MANUAL_CLUTCH_JOGGING, MANUAL_CLUTCH_ENGAGE, MANUAL_LINEAR_P, MANUAL_LINEAR_S, AUTO
-const OperatingModes OPERATING_MODE = OperatingModes::MANUAL_CLUTCH_ENGAGE; // set to OperatingModes::AUTO to run the system in debug mode
+const OperatingModes OPERATING_MODE = OperatingModes::IO_CHECKOUT; // set to OperatingModes::AUTO to run the system in debug mode
 const DiagnosticModes DIAGNOSTIC_MODE = DiagnosticModes::SERIAL_OUTPUT;
 
 const double MANUAL_LINEAR_JOG_PWR = 30.0;
@@ -72,14 +75,14 @@ uint8_t motorId = 0;
 #define PIN_CLUTCH_DIR_IN1 45 // --> wires to IN1 of L298N driver board
 #define PIN_CLUTCH_DIR_IN2 46 // --> wires to IN2 of L298N driver board
 
-#define PIN_LINEAR_P_ENC_A 18 // yellow wire of enc
-#define PIN_LINEAR_P_ENC_B 19 // green wire of enc
+#define PIN_LINEAR_P_ENC_A 18 // green wire of enc
+#define PIN_LINEAR_P_ENC_B 19 // yellow wire of enc
 
-#define PIN_LINEAR_S_ENC_A 20 // yellow wire of enc
-#define PIN_LINEAR_S_ENC_B 52 // green wire of enc
+#define PIN_LINEAR_S_ENC_A 20 // green wire of enc
+#define PIN_LINEAR_S_ENC_B 52 // yellow wire of enc
 
-#define PIN_CLUTCH_ENC_A 21 // yellow wire of enc??
-#define PIN_CLUTCH_ENC_B 2  // green wire of enc??
+#define PIN_CLUTCH_ENC_A 21 // green wire of enc??
+#define PIN_CLUTCH_ENC_B 2  // yellow wire of enc??
 
 #define PIN_EINK_BIT0 22 // NOTE THAT PINS 22, 24, 26, & 28 ARE USED AS OUTPUTS FOR GEAR NUMBER DISPLAY ON E-INK
 #define PIN_EINK_BIT1 24
@@ -162,7 +165,7 @@ Motor::Cfg linearPrimaryMotorCfg = {
   maxVelocity : 20.0,
   softLimitPositive : (6 + 0.5),
   softLimitNegative : 0.5,
-  invertEncoderDir : false,
+  invertEncoderDir : true,
   encoderRollover : false,
   invertMotorDir : true,
   positionTol : 0.02,
@@ -263,6 +266,9 @@ void setup()
   SerialLogging::init();
   if (DIAGNOSTIC_MODE == DiagnosticModes::SERIAL_OUTPUT)
   {
+    Serial.println("");
+    String versionNumberString = "VERSION NUMBER ---> " + String(VERSION_NUMBER);
+    SerialLogging::info(versionNumberString.c_str());
     String operatingModeString = "OPERATING MODE ---> " + getOperatingModeToString(OPERATING_MODE);
     SerialLogging::info(operatingModeString.c_str());
     loopState.SetDebug(true);
@@ -674,7 +680,7 @@ void runMotorManualMode(int motor_id)
     }
     if (motors[motor_id].actualPosition < lastPosition)
     {
-      SerialLogging::error("clutch motor position decreased when it was expected to increase");
+      SerialLogging::error("motor position decreased when it was expected to increase");
       loopState.transitionToStep(Modes::ERROR);
     }
   }
@@ -691,7 +697,7 @@ void runMotorManualMode(int motor_id)
 
     if (motors[motor_id].actualPosition > lastPosition)
     {
-      SerialLogging::error("clutch motor position increased when it was expected to decrease");
+      SerialLogging::error("motor position increased when it was expected to decrease");
       loopState.transitionToStep(Modes::ERROR);
     }
   }
