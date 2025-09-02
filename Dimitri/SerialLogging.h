@@ -17,7 +17,10 @@ private:
   static const size_t BUFFER_SIZE = 512 + 4;    // Output buffer size (+4 for dropMark)
   static uint8_t output_BUFFER[BUFFER_SIZE];    // Manual static buffer for BufferedOutput
   static BufferedOutput output;                 // Non-blocking output buffer
-  static const size_t MAX_MSG_SIZE = 100;       // Max chars per formatted message (including null terminator)
+  static const size_t MAX_MSG_SIZE = 255;       // Max chars per formatted message (including null terminator)
+  static const uint8_t STX = 0x02;              // Start of Text
+  static const uint8_t ETX = 0x03;              // End of Text
+  static const uint8_t NEWLINE = 0x0A;          // Newline
 
   // Internal helpers for custom ring buffer
   static bool isFull();                         // Check if buffer is full
@@ -42,7 +45,7 @@ public:
   static void error(const char* fmt, ...);
 
   // Add msg chunk of type byte*
-  static void publishData(byte* &data, size_t len, const char* header);
+  static void publishData(byte* data, size_t len, uint8_t id);
 
   // Process: Dequeue bytes to output buffer and release to Serial (call in loop())
   static void process();

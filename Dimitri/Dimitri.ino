@@ -1,4 +1,4 @@
-#define VERSION_NUMBER 35
+#define VERSION_NUMBER 36
 
 // #define SCAN_TIME_US 500  // how frequently the loop updates
 #define UPDATE_TIME_US 400 // time that the motor velocities are updated, motor run() are called at half this rate
@@ -31,7 +31,7 @@ enum DiagnosticModes
 
 // OPERATING MODES: IO_CHECKOUT, MANUAL_CLUTCH_JOGGING, MANUAL_CLUTCH_ENGAGE, MANUAL_LINEAR_P, MANUAL_LINEAR_S, AUTO
 const OperatingModes OPERATING_MODE = OperatingModes::MANUAL_CLUTCH_JOGGING; // set to OperatingModes::AUTO to run the system in debug mode
-const DiagnosticModes DIAGNOSTIC_MODE = DiagnosticModes::SERIAL_OUTPUT;
+const DiagnosticModes DIAGNOSTIC_MODE = DiagnosticModes::UI;
 
 const double MANUAL_LINEAR_JOG_PWR = 30.0;
 const double MANUAL_CLUTCH_JOG_PWR = 70.0;
@@ -954,21 +954,25 @@ void checkActualGear()
   }
 }
 
-byte *publishedData = new byte[3 * MOTOR_DATA_SIZE];
+const uint8_t dataLength = NUM_MOTORS * MOTOR_DATA_SIZE + 2; // 2 bytes for loopStep
+byte *publishedData = new byte[dataLength];
 void updatePublishedDataChunk()
 {
-  int i = 0;
-  int size = 0;
+    int size = 0;
 
-  for (i = 0; i < NUM_MOTORS; i++)
-  {
-    byte *motorData = motors[i].getMotorData();
-    memcpy(publishedData + size, motorData, MOTOR_DATA_SIZE);
-    size += MOTOR_DATA_SIZE;
-    delete[] motorData;
-  }
+    for (int i = 0; i < NUM_MOTORS; i++)
+    {
+        byte *motorData = motors[i].getMotorData();
+        memcpy(publishedData + size, motorData, MOTOR_DATA_SIZE);
+        size += MOTOR_DATA_SIZE;
+        delete[] motorData;
+    }
+
+    // convert loopState.Step to bytes (little-endian)
+    int16_t loopStepInt16 = static_cast<int16_t>(loopState.Step);
+    publishedData[size++] = static_cast<byte>(loopStepInt16 & 0xFF);       // LSB
+    publishedData[size++] = static_cast<byte>((loopStepInt16 >> 8) & 0xFF); // MSB
 }
-
 // sets the digital outputs for the gear number to be received by the display device
 void updateGearNumberDigitalOutputs(int num)
 {
@@ -1529,10 +1533,11 @@ void loop()
     if (DIAGNOSTIC_MODE == DiagnosticModes::UI)
     {
       updatePublishedDataChunk();
-      SerialLogging::publishData(publishedData, MOTOR_DATA_SIZE * 3, "UI");
+      uint8_t id = 0;
+     // uint8_t dataLength = (MOTOR_DATA_SIZE * NUM_MOTORS + 2;
+      SerialLogging::publishData(publishedData, dataLength, id);
     }
     SerialLogging::process();
-
   }
   else
   {
