@@ -74,14 +74,14 @@ uint8_t motorId = 0;
 #define PIN_CLUTCH_DIR_IN1 45 // --> wires to IN1 of L298N driver board
 #define PIN_CLUTCH_DIR_IN2 46 // --> wires to IN2 of L298N driver board
 
-#define PIN_LINEAR_P_ENC_A 18 // green wire of enc
-#define PIN_LINEAR_P_ENC_B 19 // yellow wire of enc
+#define PIN_LINEAR_P_ENC_A 39 // green wire of enc
+#define PIN_LINEAR_P_ENC_B 38 // yellow wire of enc
 
-#define PIN_LINEAR_S_ENC_A 20 // green wire of enc
-#define PIN_LINEAR_S_ENC_B 52 // yellow wire of enc
+#define PIN_LINEAR_S_ENC_A 36 // green wire of enc
+#define PIN_LINEAR_S_ENC_B 37 // yellow wire of enc
 
-#define PIN_CLUTCH_ENC_A 21 // green wire of enc??
-#define PIN_CLUTCH_ENC_B 2  // yellow wire of enc??
+#define PIN_CLUTCH_ENC_A 41 // yellow wire of enc
+#define PIN_CLUTCH_ENC_B 40  // white wire of enc
 
 #define PIN_EINK_BIT0 22 // NOTE THAT PINS 22, 24, 26, & 28 ARE USED AS OUTPUTS FOR GEAR NUMBER DISPLAY ON E-INK
 #define PIN_EINK_BIT1 24
@@ -89,8 +89,8 @@ uint8_t motorId = 0;
 #define PIN_EINK_BIT3 28
 #define NUM_BITS 4
 
-#define PIN_CLUTCH_POS_LIM 30 // detects 228 deg
-#define PIN_CLUTCH_NEG_LIM 31 // detects 0 deg
+#define PIN_CLUTCH_POS_LIM 35 // detects 228 deg
+#define PIN_CLUTCH_NEG_LIM 34 // detects 0 deg
 #define PIN_SHIFT_UP 32       // ORANGE WIRE ON SHIFTER
 #define PIN_SHIFT_DOWN 33     // RED WIRE ON SHIFTER
 

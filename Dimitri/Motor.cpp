@@ -563,7 +563,7 @@ void Motor::init()
     }
     if (_homeSwPin != DUMMY_PIN)
     {
-        pinMode(_homeSwPin, INPUT_PULLUP);
+        //pinMode(_homeSwPin, INPUT_PULLUP);
     }
     _motorPrefix = "MOTOR (" + _cfg->name + ") ";
     String processName = String(_motorPrefix) + "Process";
