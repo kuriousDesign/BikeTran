@@ -4,6 +4,9 @@
 #define UPDATE_TIME_US 400 // time that the motor velocities are updated, motor run() are called at half this rate
 #define NUM_MOTORS 3
 
+#define UI_UPDATE_RATE_MS 100
+unsigned long lastUiUpdateMs = 0;
+
 enum Motors
 {
   CLUTCH = 0,
@@ -1530,11 +1533,12 @@ void loop()
     updateGearNumberDigitalOutputs(shiftData.targetGear);
     gearChangeReq = false;
 
-    if (DIAGNOSTIC_MODE == DiagnosticModes::UI)
+    if (DIAGNOSTIC_MODE == DiagnosticModes::UI && timeNowUs/1000 - lastUiUpdateMs > UI_UPDATE_RATE_MS)
     {
       updatePublishedDataChunk();
       uint8_t id = 0;
-     // uint8_t dataLength = (MOTOR_DATA_SIZE * NUM_MOTORS + 2;
+      lastUiUpdateMs = timeNowUs/1000;
+      uint8_t dataLength = (MOTOR_DATA_SIZE * NUM_MOTORS + 2);
       SerialLogging::publishData(publishedData, dataLength, id);
     }
     SerialLogging::process();

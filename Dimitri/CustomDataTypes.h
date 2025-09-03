@@ -108,20 +108,6 @@ struct FaultData
     String list[FAULT_DATA_LIST_LENGTH];
 };
 
-// enum Errors : uint8_t //
-// {
-//     NONE_ERROR = 0,
-//     CONTROLLER_SHIFT_TIMED_OUT = 1,
-//     CONTROLLER_FAULT_DURING_HOMING = 2,
-//     HOMING_NUDGE_RETRIES_EXCEEDED = 3,
-//     ENCODER_MISREAD_COUNT_EXCEEDED = 4,
-//     MOTOR_NOT_AT_TARGET_WHILE_IDLE = 5,
-//     TOGGLE_MOTOR_DISENGAGE_MOVE_TIMED_OUT = 6,
-//     LINEAR_SHIFT_MOVE_TIMED_OUT = 7,
-//     TOGGLE_MOTOR_ENGAGE_MOVE_TIMED_OUT = 8,
-//     HOMING_ROUTINE_ERROR = 50, //reserved 51- 59 for homing errors
-// };
-
 enum Warnings : uint8_t //
 {
     NONE_WARNING = 0,
