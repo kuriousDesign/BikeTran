@@ -126,8 +126,9 @@ Encoder encoders[NUM_MOTORS] = {
     Encoder(PIN_LINEAR_P_ENC_A, PIN_LINEAR_P_ENC_B),
     Encoder(PIN_LINEAR_S_ENC_A, PIN_LINEAR_S_ENC_B)};
 
+    // pulses / cppu ) 360/394.5 = deg
 // 394.68deg reading after 360.0 deg rotation.
-const double CLUTCH_PULSES_PER_UNIT = 2.0 * 445.12 / 360.0; // 480.0 / 360.0; //120PPR /360deg for the 600rpm motor
+const double CLUTCH_PULSES_PER_UNIT = 2.0 * (445.12 / 360.0) * (360.0 / 394.5); // 480.0 / 360.0; //120PPR /360deg for the 600rpm motor
 // notes from joe on AUG 19 2025 - 12mm per turn, 6.62 mm per gear
 const double LINEAR_P_PULSES_PER_UNIT = 1.0; // 14.0 / 11.0 * 2.0 * 8600.0 / (double(NUM_GEARS) - 1.0); // 9200 is the max position, 488 is the min position
 // 12 mm per turn, 6.13mm per gear
@@ -957,8 +958,8 @@ void checkActualGear()
   }
 }
 
-const uint8_t dataLength = NUM_MOTORS * MOTOR_DATA_SIZE + 2; // 2 bytes for loopStep
-byte *publishedData = new byte[dataLength];
+const uint8_t PACKET_SIZE = NUM_MOTORS * MOTOR_DATA_SIZE + 2 + 1; // 2 bytes for loopStep and 1 byte for operation mode
+byte *publishedData = new byte[PACKET_SIZE];
 void updatePublishedDataChunk()
 {
     int size = 0;
@@ -975,6 +976,9 @@ void updatePublishedDataChunk()
     int16_t loopStepInt16 = static_cast<int16_t>(loopState.Step);
     publishedData[size++] = static_cast<byte>(loopStepInt16 & 0xFF);       // LSB
     publishedData[size++] = static_cast<byte>((loopStepInt16 >> 8) & 0xFF); // MSB
+
+    // convert loopState.OperationMode to bytes (little-endian)
+    publishedData[size++] = static_cast<uint8_t>(OPERATING_MODE);
 }
 // sets the digital outputs for the gear number to be received by the display device
 void updateGearNumberDigitalOutputs(int num)
@@ -1538,8 +1542,8 @@ void loop()
       updatePublishedDataChunk();
       uint8_t id = 0;
       lastUiUpdateMs = timeNowUs/1000;
-      uint8_t dataLength = (MOTOR_DATA_SIZE * NUM_MOTORS + 2);
-      SerialLogging::publishData(publishedData, dataLength, id);
+      //uint8_t dataLength = (MOTOR_DATA_SIZE * NUM_MOTORS + 2);
+      SerialLogging::publishData(publishedData, PACKET_SIZE, id);
     }
     SerialLogging::process();
   }

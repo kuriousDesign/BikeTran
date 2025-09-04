@@ -1,18 +1,19 @@
 #ifndef GEARMAP_H
 #define GEARMAP_H
 
-#define NUM_GEARS 16
+#define NUM_GEARS 15
 
+//index starts at 1, Primary then Secondary
 class GearMap {
 private:
     int8_t gearData[NUM_GEARS + 1][2] = {
-        {0, 0}, // Default gear
+        {0, 0}, // placeholder gear, don't use
         {1, 1}, // Gear 1
         {2, 1}, // Gear 2
         {3, 1}, // Gear 3
         {4, 1}, // Gear 4
         {5, 1}, // Gear 5
-        {6, 1}, // Gear 6
+        {1, 2}, // Gear 6
         {2, 2}, // Gear 7
         {3, 2}, // Gear 8
         {4, 2}, // Gear 9
@@ -22,7 +23,7 @@ private:
         {3, 3}, // Gear 13
         {4, 3}, // Gear 14
         {5, 3}, // Gear 15
-        {6, 3}  // Gear 16
+
     };
 
 public:

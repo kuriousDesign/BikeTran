@@ -15,7 +15,7 @@ enum Modes : int32_t //
     MANUAL = 1100,
 };
 
-enum OperatingModes
+enum OperatingModes : uint8_t //
 {
   AUTO = 0,
   MANUAL_CLUTCH_JOGGING = 1,
