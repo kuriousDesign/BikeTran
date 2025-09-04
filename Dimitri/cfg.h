@@ -78,7 +78,7 @@ Encoder encoders[NUM_MOTORS] = {
 
 // pulses / cppu ) 360/394.5 = deg
 // 394.68deg reading after 360.0 deg rotation.
-const double CLUTCH_PULSES_PER_UNIT = 2.0 * (445.12 / 360.0) * (360.0 / 394.5); // 480.0 / 360.0; //120PPR /360deg for the 600rpm motor
+const double CLUTCH_PULSES_PER_UNIT = 2.0 * (445.12 / 360.0) * (394.5 / 360.0); // 480.0 / 360.0; //120PPR /360deg for the 600rpm motor
 // notes from joe on AUG 19 2025 - 12mm per turn, 6.62 mm per gear
 const double LINEAR_P_PULSES_PER_UNIT = 1.0; // 14.0 / 11.0 * 2.0 * 8600.0 / (double(NUM_GEARS) - 1.0); // 9200 is the max position, 488 is the min position
 // 12 mm per turn, 6.13mm per gear
