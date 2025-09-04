@@ -3,11 +3,22 @@
 
 #include <Arduino.h>
 #include <Encoder.h>
-//#include <TimerOne.h>
+// #include <TimerOne.h>
 #include "StateManager.h"
 
 #define NUM_FILTER_POINTS 5
-#define MOTOR_DATA_SIZE 14
+
+struct MotorData
+{
+    int16_t state;
+    float position;
+    float velocity;
+    float targetPosition;
+    uint8_t activeProcess;
+    int16_t processStep;
+};
+
+#define MOTOR_DATA_SIZE 17 //i think this is 17 bytes
 
 class Motor
 {
@@ -45,11 +56,11 @@ public:
     struct Cfg
     {
         String name;
-        int8_t homingDir;   //-1 for reverse, 1 for forward
-        uint8_t homingType; // 0 for none, 1 for home swith, 2 for limit switch, 3 for hardstop
+        int8_t homingDir;          //-1 for reverse, 1 for forward
+        uint8_t homingType;        // 0 for none, 1 for home swith, 2 for limit switch, 3 for hardstop
         double homeOffsetFromZero; // units
-        float homingPwr;  // power to use during homing, %
-        String unit;        //'mm' or 'deg' for example
+        float homingPwr;           // power to use during homing, %
+        String unit;               //'mm' or 'deg' for example
         double pulsesPerUnit;
         double maxVelocity; // units
         // double maxAcceleration; //units
@@ -63,7 +74,7 @@ public:
         double kP;              // proportional gain for PID, units
         double kD;              // derivative gain for PID, units
         uint16_t nudgeTimeMs;   // ms
-        float nudgePower;      //%
+        float nudgePower;       //%
     };
     Motor(uint8_t dirPin, uint8_t speedPin, Encoder *encoder, Cfg *cfg, bool simMode = false, uint8_t dir2Pin = DUMMY_PIN, uint8_t homeSwPin = DUMMY_PIN);
 
@@ -73,7 +84,7 @@ public:
     bool atPosition;         // motor position is near target position
     uint8_t ActiveProcess = MotorProcesses::NONE_PROCESS;
 
-    bool* sensors;
+    bool *sensors;
 
     bool isStill; // motor velocity is near zero
     double actualPosition;
@@ -104,7 +115,7 @@ public:
     bool disable();
     bool hold_position();
     bool home();
-    byte* getMotorData();
+    byte *getMotorData();
 
     void init();
     double error;
@@ -118,8 +129,8 @@ private:
     uint16_t _scanTimeUs = 4000; // TODO: update this inside the run() function
     uint8_t prevActiveProcess = MotorProcesses::NONE_PROCESS;
 
-    unsigned long lastTime = 0;  // For delta time calculation
-    double avgAbsError = 0.0;    // IIR-filtered average abs(error)
+    unsigned long lastTime = 0; // For delta time calculation
+    double avgAbsError = 0.0;   // IIR-filtered average abs(error)
 
     bool _stopReq = false;
     bool _homeReq = false;
@@ -152,12 +163,12 @@ private:
 
     void checkIsNudging(bool isJogging = false);
     double pdControl();
-    bool homeToHardstop(int8_t dir, bool reset=false);
-    bool homeToSwitch(int8_t searchDir, Sensors sensorId, bool reset=false);
+    bool homeToHardstop(int8_t dir, bool reset = false);
+    bool homeToSwitch(int8_t searchDir, Sensors sensorId, bool reset = false);
     void setOutputs();
     void updatePosition();
     void reconditionFilteredData(double diff);
-    bool* updateSensors();
+    bool *updateSensors();
     void runProcess();
 
     Cfg *_cfg;

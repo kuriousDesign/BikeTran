@@ -795,6 +795,16 @@ byte* Motor::getMotorData() {
     memcpy(data + i, &tmpFloat, size);
     i += size;
 
+    // motor active process - uint8 (1 bytes)
+    size = sizeof(ActiveProcess);
+    memcpy(data + i, &ActiveProcess, size);
+    i += size;
+
+    // process step - int16 (2 bytes)
+    size = sizeof(processState.Step);
+    memcpy(data + i, &processState.Step, size);
+    i += size;
+
     return data;
 }
 

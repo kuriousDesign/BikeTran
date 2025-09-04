@@ -52,6 +52,12 @@ String getOperatingModeToString(OperatingModes mode)
     }
 }
 
+enum DiagnosticModes
+{
+  UI = 0,
+  SERIAL_OUTPUT = 1,
+};
+
 enum Events : int
 {
     NONE_EVENT = 0,
@@ -126,6 +132,8 @@ struct CmdData
 {
 
 };
+
+
 
 
 #endif

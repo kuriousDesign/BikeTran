@@ -21,7 +21,7 @@ public:
     StateManager(String name) : _name(name) {}
 
     // Read-only property
-    int Step;
+    int16_t Step;
     bool FirstScan;
     bool ErrorsPresent;
 
