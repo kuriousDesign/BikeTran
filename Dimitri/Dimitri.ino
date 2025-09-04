@@ -961,7 +961,7 @@ String getSensorStateString(bool state)
 
 void readInputs()
 {
-  inputs[Inputs::ShiftDownSw] = !digitalRead(PIN_SHIFT_DOWN); // TODO: testing delete this
+  inputs[Inputs::ShiftDownSw] = !digitalRead(PIN_SHIFT_DOWN); 
   inputs[Inputs::ShiftUpSw] = !digitalRead(PIN_SHIFT_UP);
   inputs[Inputs::ClutchNegLimSw] = !digitalRead(PIN_CLUTCH_NEG_LIM);
   inputs[Inputs::ClutchPosLimSw] = !digitalRead(PIN_CLUTCH_POS_LIM);
