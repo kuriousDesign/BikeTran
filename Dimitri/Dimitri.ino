@@ -963,6 +963,7 @@ byte *publishedData = new byte[PACKET_SIZE];
 void updatePublishedDataChunk()
 {
     int size = 0;
+    //static int prevStep = -1;
 
     for (int i = 0; i < NUM_MOTORS; i++)
     {
