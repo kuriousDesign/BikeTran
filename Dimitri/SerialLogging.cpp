@@ -6,6 +6,7 @@ volatile size_t SerialLogging::head = 0;
 volatile size_t SerialLogging::tail = 0;
 uint8_t SerialLogging::output_BUFFER[SerialLogging::BUFFER_SIZE];
 BufferedOutput SerialLogging::output(sizeof(SerialLogging::output_BUFFER), SerialLogging::output_BUFFER, DROP_IF_FULL);
+bool SerialLogging::debug = false;
 
 bool SerialLogging::isFull()
 {
@@ -52,10 +53,15 @@ void SerialLogging::init()
   output.connect(Serial, 115200);
   head = 0;
   tail = 0; // Reset indices
+  setDebug(false); // Default to no debug
 }
 
 void SerialLogging::add(const char *fmt, ...)
 {
+  if (!debug)
+  {
+    return; // Skip if debug not enabled
+  }
   char msg[MAX_MSG_SIZE];
   va_list args;
   va_start(args, fmt);
@@ -78,6 +84,10 @@ void SerialLogging::add(const char *fmt, ...)
 
 void SerialLogging::info(const char *fmt, ...)
 {
+  if (!debug)
+  {
+    return; // Skip if debug not enabled
+  }
   char msg[MAX_MSG_SIZE];
   va_list args;
   va_start(args, fmt);
@@ -111,6 +121,10 @@ void SerialLogging::info(const char *fmt, ...)
 
 void SerialLogging::warn(const char *fmt, ...)
 {
+  if (!debug)
+  {
+    return; // Skip if debug not enabled
+  }
   char msg[MAX_MSG_SIZE];
   va_list args;
   va_start(args, fmt);
@@ -153,6 +167,10 @@ void SerialLogging::warn(const char *fmt, ...)
 
 void SerialLogging::error(const char *fmt, ...)
 {
+  if (!debug)
+  {
+    return; // Skip if debug not enabled
+  }
   char msg[MAX_MSG_SIZE];
   va_list args;
   va_start(args, fmt);
@@ -224,7 +242,7 @@ void SerialLogging::publishData(byte *data, size_t len, uint8_t id)
   for (size_t i = 0; i < len; ++i)
   {
     pushByte(static_cast<uint8_t>(data[i]));
-    //pushByte(static_cast<uint8_t>());
+    // pushByte(static_cast<uint8_t>());
   }
 
   pushByte(ETX);     // append ET
@@ -247,4 +265,9 @@ void SerialLogging::process()
     output.write(byteVal); // Add byte to BufferedOutput
   }
   output.nextByteOut(); // Release bytes to Serial non-blockingly
+}
+
+void SerialLogging::setDebug(bool state)
+{
+  debug = state;
 }

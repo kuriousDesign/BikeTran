@@ -1,4 +1,4 @@
-#define VERSION_NUMBER 36
+#define VERSION_NUMBER 37
 
 // #define SCAN_TIME_US 500  // how frequently the loop updates
 #define UPDATE_TIME_US 400 // time that the motor velocities are updated, motor run() are called at half this rate
@@ -269,6 +269,7 @@ void setup()
   SerialLogging::init();
   if (DIAGNOSTIC_MODE == DiagnosticModes::SERIAL_OUTPUT)
   {
+    SerialLogging::setDebug(true);
     Serial.println("");
     String versionNumberString = "VERSION NUMBER ---> " + String(VERSION_NUMBER);
     SerialLogging::info(versionNumberString.c_str());

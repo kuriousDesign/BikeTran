@@ -21,16 +21,19 @@ private:
   static const uint8_t STX = 0x02;              // Start of Text
   static const uint8_t ETX = 0x03;              // End of Text
   static const uint8_t NEWLINE = 0x0A;          // Newline
+  static bool debug;                  // Debug flag to enable/disable logging    
 
   // Internal helpers for custom ring buffer
   static bool isFull();                         // Check if buffer is full
   static bool isEmpty();                        // Check if buffer is empty
   static bool pushByte(uint8_t byte);           // Push a single byte (returns true on success)
   static bool popByte(uint8_t& byte);           // Pop a single byte (returns true on success)
+  
 
 public:
   // Initialize: Call once in setup()
   static void init();
+  static void setDebug(bool state); // Enable/disable debug messages
 
   // Add a message without newline
   static void add(const char* fmt, ...);
