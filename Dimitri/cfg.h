@@ -105,12 +105,12 @@ Motor::Cfg clutchMotorCfg = {
     homingDir : Motor::HomingDir::POSITIVE,      // homing direction
     homingType : Motor::HomingType::HOME_SWITCH, // homing type
     homeOffsetFromZero : 0.0,                    // home offset from zero
-    homingPwr : 100.0,
+    homingPwr : 50.0,
     unit : "deg",
     pulsesPerUnit : CLUTCH_PULSES_PER_UNIT, // unit and pulses per unit
     maxVelocity : 1000.0,                   // max velocity
-    softLimitPositive : 721.0,              // soft limit positive
-    softLimitNegative : -721.0,             // soft limit negative
+    softLimitPositive : 0.0,              // soft limit positive
+    softLimitNegative : 360.0,             // soft limit negative
     invertEncoderDir : false,               // invert encoder
     encoderRollover : false,                // enable encoder rollover
     invertMotorDir : true,                  // invert motor direction
@@ -134,9 +134,9 @@ Motor::Cfg linearPrimaryMotorCfg = {
     maxVelocity : 20.0,
     softLimitPositive : (6 + 0.5),
     softLimitNegative : 0.5,
-    invertEncoderDir : true,
+    invertEncoderDir : false,
     encoderRollover : false,
-    invertMotorDir : true,
+    invertMotorDir : false,
     positionTol : 0.02,
     zeroVelocityTol : 0.05,
     kP : LinearKp,
@@ -158,7 +158,7 @@ Motor::Cfg linearSecondaryMotorCfg = {
     softLimitNegative : 0.5,
     invertEncoderDir : false,
     encoderRollover : false,
-    invertMotorDir : true,
+    invertMotorDir : false,
     positionTol : 0.02,
     zeroVelocityTol : 0.05,
     kP : LinearKp,

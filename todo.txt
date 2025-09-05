@@ -3,7 +3,13 @@
 2. DEBUG HOMING PROCEDURE
 3. TUNE CLUTCH MOTOR PID USING MANUAL_CLUCTCH_ENGAGE program
 
+feed forward gain for clutch when at shifting position and holding
+NOT DOING YET - need to fix the sensors udpating in motor.cpp, its not giving updating across the code
+fix the nudge logic for jogging
+fix isStill logic for motors
+add motor output pwr to the UI getMotorData as well as isStill and atPositionAndStill
 
+DONE  add step description to clutch engage and disengage
 
 GENEARL PROCEDURE FOR HOMING THE SYSTEM
 

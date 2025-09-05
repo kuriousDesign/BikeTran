@@ -84,7 +84,7 @@ public:
     bool atPosition;         // motor position is near target position
     uint8_t ActiveProcess = MotorProcesses::NONE_PROCESS;
 
-    bool *sensors;
+    bool sensors[3] = {false, false, false}; // home, limit pos, limit neg
 
     bool isStill; // motor velocity is near zero
     double actualPosition;

@@ -30,7 +30,7 @@ public:
         _name = name;
     }   
 
-    void SetDebug(bool enable)
+    void setDebug(bool enable)
     {
         _debugEnabled = enable;
     }
@@ -59,7 +59,9 @@ public:
     {
         if (_debugEnabled)
         {
-            SerialLogging::error(msg);
+            // add  state value to end of error message with hyphen
+            String fullMsg = String(msg) + " - State: " + String(_step);
+            SerialLogging::error(fullMsg.c_str());
         }
         _errorsPresent = true;
     }

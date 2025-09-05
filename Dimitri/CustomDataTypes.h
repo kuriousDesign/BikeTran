@@ -23,6 +23,8 @@ enum OperatingModes : uint8_t //
   MANUAL_LINEAR_S = 3,
   IO_CHECKOUT = 4,
   MANUAL_CLUTCH_ENGAGE = 5,
+  LINEAR_P_HOMING = 6,
+  LINEAR_S_HOMING = 7,
 };
 
 String getOperatingModeToString(OperatingModes mode)
@@ -132,8 +134,6 @@ struct CmdData
 {
 
 };
-
-
 
 
 #endif

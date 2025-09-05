@@ -1,4 +1,4 @@
-#define VERSION_NUMBER 38
+#define VERSION_NUMBER 46
 
 #define UPDATE_TIME_US 400 // time that the motor velocities are updated, motor run() are called at half this rate
 #define UI_UPDATE_RATE_MS 100
@@ -15,7 +15,7 @@
 #include "cfg.h"
 
 // OPERATING MODES: IO_CHECKOUT, MANUAL_CLUTCH_JOGGING, MANUAL_CLUTCH_ENGAGE, MANUAL_LINEAR_P, MANUAL_LINEAR_S, AUTO
-const OperatingModes OPERATING_MODE = OperatingModes::MANUAL_CLUTCH_JOGGING; // set to OperatingModes::AUTO to run the system in debug mode
+const OperatingModes OPERATING_MODE = OperatingModes::MANUAL_CLUTCH_ENGAGE; // set to OperatingModes::AUTO to run the system in debug mode
 const DiagnosticModes DIAGNOSTIC_MODE = DiagnosticModes::UI; // set to DiagnosticModes::SERIAL_OUTPUT to output diagnostic data over serial, otherwise UI mode
 
 const unsigned long DELAY_LINEAR_MOTION_AFTER_CLUTCH_REACHES_SHIFT_POSITION_MS = 200; // ms, time to wait after clutch reaches shifting position before linear motor motion is allowed
@@ -79,7 +79,7 @@ unsigned long lastUiUpdateMs = 0;
 
 const bool SOL_ON = true;
 StateManager loopState = StateManager("mainLoop");
-StateManager clutchDeviceState = StateManager("clutchEngageDisengageState");
+StateManager clutchDeviceState = StateManager("clutchEngageState");
 
 void setup()
 {
@@ -92,9 +92,9 @@ void setup()
     SerialLogging::info(versionNumberString.c_str());
     String operatingModeString = "OPERATING MODE ---> " + getOperatingModeToString(OPERATING_MODE);
     SerialLogging::info(operatingModeString.c_str());
-    loopState.SetDebug(true);
-    clutchDeviceState.SetDebug(true);
-    motors[Motors::CLUTCH].setDebug(true);
+    loopState.setDebug(true);
+    clutchDeviceState.setDebug(true);
+    motors[Motors::CLUTCH].setDebug(false);
     motors[Motors::LINEAR_P].setDebug(true);
     motors[Motors::LINEAR_S].setDebug(true);
   }
@@ -156,7 +156,7 @@ bool disengageClutch(bool reset = false)
       clutchDeviceState.transitionToStep(1);
       break;
 
-    case 1: // ENABLE CLUTCH MOTOR
+    case 1: clutchDeviceState.StepDescription("enable clutch");
       motors[Motors::CLUTCH].enable();
       if (motors[Motors::CLUTCH].getState() == Motor::States::IDLE)
       {
@@ -164,7 +164,7 @@ bool disengageClutch(bool reset = false)
       }
       break;
 
-    case 10: // MOVE MOTOR TO SHIFTING POSITION (CFG PARAM)
+    case 10: clutchDeviceState.StepDescription("move to shift pos");
       motors[Motors::CLUTCH].moveAbs(POSITION_CLUTCH_SHIFTING);
 
       if (motors[Motors::CLUTCH].getState() == Motor::States::MOVING)
@@ -173,7 +173,7 @@ bool disengageClutch(bool reset = false)
       }
       break;
 
-    case 11: // WAIT FOR MOTOR TO REACH POSITION
+    case 11: clutchDeviceState.StepDescription("wait to reach pos");
       if (motors[Motors::CLUTCH].getState() == Motor::States::IDLE)
       {
         motors[Motors::CLUTCH].hold_position();
@@ -181,13 +181,13 @@ bool disengageClutch(bool reset = false)
       }
       break;
 
-    case 20: // ACTIVELY HOLD MOTOR POSITION AND WAIT DELAY
+    case 20: clutchDeviceState.StepDescription("hold position");
       motors[Motors::CLUTCH].hold_position();
       if (clutchDeviceState.getStepActiveTime() > DELAY_LINEAR_MOTION_AFTER_CLUTCH_REACHES_SHIFT_POSITION_MS)
       {
         clutchDeviceState.transitionToStep(1000);
       }
-
+      break;
     case 1000: // DONE: HOLD CLUTCH AND HOLDING PWR TO KEEP IT IN DISENGAGED POSITION
       motors[Motors::CLUTCH].hold_position();
       return true;
@@ -197,6 +197,7 @@ bool disengageClutch(bool reset = false)
       break;
     }
   }
+  return false;
 }
 
 bool engageClutch(bool reset = false)
@@ -211,18 +212,18 @@ bool engageClutch(bool reset = false)
 
     switch (clutchDeviceState.Step)
     {
-    case 0:
+    case 0: clutchDeviceState.StepDescription("check start pos");
       if (abs(motors[Motors::CLUTCH].actualPosition - POSITION_CLUTCH_SHIFTING) < 5.0)
       {
         clutchDeviceState.transitionToStep(1);
       }
       else
       {
-        triggerError("ENGAGE_CLUTCH: position not within tolerance prior to moving to engaged position");
+        triggerError("position not within tolerance");
       }
       break;
 
-    case 1: // ENABLE CLUTCH MOTOR
+    case 1: clutchDeviceState.StepDescription("enable clutch");
       motors[Motors::CLUTCH].enable();
       if (motors[Motors::CLUTCH].getState() == Motor::States::IDLE)
       {
@@ -230,7 +231,7 @@ bool engageClutch(bool reset = false)
       }
       break;
 
-    case 10: // MOVE MOTOR TO PEDALING POSITION (CFG PARAM)
+    case 10: clutchDeviceState.StepDescription("move to pedaling pos");
       motors[Motors::CLUTCH].moveAbs(POSITION_CLUTCH_PEDALING + 360.0);
 
       if (motors[Motors::CLUTCH].getState() == Motor::States::MOVING)
@@ -239,7 +240,7 @@ bool engageClutch(bool reset = false)
       }
       break;
 
-    case 11: // WAIT FOR MOTOR TO REACH POSITION
+    case 11: clutchDeviceState.StepDescription("wait to reach pos");
       if (motors[Motors::CLUTCH].getState() == Motor::States::IDLE)
       {
         clutchDeviceState.transitionToStep(20);
@@ -247,20 +248,21 @@ bool engageClutch(bool reset = false)
       break;
 
     case 20:
-      clutchDeviceState.StepDescription("ENGAGE_CLUTCH: wait before resetting position");
+      clutchDeviceState.StepDescription("wait before resetting position");
       if (clutchDeviceState.getStepActiveTime() > 5)
       {
         clutchDeviceState.transitionToStep(80);
       }
+      break;
     case 80:
-      clutchDeviceState.StepDescription("ENGAGE_CLUTCH: reset the position near zero");
+      clutchDeviceState.StepDescription("pseudo-zero the position");
       // at this point the motor position will be near 0 or 360 or 720 or -360 or -720, so i need reset the position so that its closer to zero
       setClutchRolloverPosition();
       clutchDeviceState.transitionToStep(90);
       break;
 
     case 90:
-      clutchDeviceState.StepDescription("ENGAGE_CLUTCH: check neg lim sw");
+      clutchDeviceState.StepDescription("check neg lim sw");
       if (inputs[Inputs::ClutchNegLimSw])
       {
         clutchDeviceState.transitionToStep(1000);
@@ -268,12 +270,12 @@ bool engageClutch(bool reset = false)
       else
       {
         // if the neg lim sw is not pressed, then we need to hold the clutch motor in position
-        triggerError("ENGAGE_CLUTCH: negative limit switch not pressed");
+        triggerError("neg lim sw not detected");
       }
       clutchDeviceState.transitionToStep(1000);
       break;
 
-    case 1000: // DONE: HOLD CLUTCH AND HOLDING PWR TO KEEP IT IN ENGAGED POSITION
+    case 1000: clutchDeviceState.StepDescription("done: now holding pos");
       motors[Motors::CLUTCH].hold_position();
       return true;
       break;
@@ -282,6 +284,7 @@ bool engageClutch(bool reset = false)
       break;
     }
   }
+  return false;
 }
 
 // Sets the clutch motor position to the nearest rollover position around 0
@@ -455,6 +458,7 @@ void triggerError(String code)
     if (errors.list[i] == "" && isNewCode)
     {
       errors.list[i] = code;
+      SerialLogging::error(code.c_str());
       break;
     }
   }
@@ -621,7 +625,7 @@ bool runMotorsThisScan = false;
 
 void updateMotors()
 {
-  motors[motorId].update();
+  //motors[motorId].update(); moved this to run()
   motors[motorId].run();
   motorId = (motorId + 1) % NUM_MOTORS;
 
@@ -1335,10 +1339,17 @@ void loop()
 
       break;
     case 1150:
-      loopState.StepDescription("MANUAL - waiting for clutch to disengage");
+      loopState.StepDescription("waiting for clutch disengage");
       if (disengageClutch() && inputs[Inputs::ShiftUpSw])
       {
-        SerialLogging::info("Clutch motor disengaged (shift position)");
+        loopState.transitionToStep(1151);
+      }
+      break;
+
+      case 1151:
+      loopState.StepDescription("holding at disengage");
+      if (loopState.getStepActiveTime() > 2000)
+      {
         engageClutch(true);
         loopState.transitionToStep(1155);
       }
@@ -1346,20 +1357,27 @@ void loop()
       break;
 
     case 1155:
-      loopState.StepDescription("MANUAL - waiting for clutch to engage after shift up");
+      loopState.StepDescription("waiting for clutch engage");
       if (engageClutch())
       {
-        SerialLogging::info("Clutch motor engaged (pedal position)");
+        loopState.transitionToStep(1156);
+      }
+      break;
+
+      case 1156:
+      loopState.StepDescription("re-engaged");
+      if (loopState.getStepActiveTime() > 2000)
+      {
         disengageClutch(true);
         loopState.transitionToStep(Modes::MANUAL);
       }
-
       break;
 
     default:
       SerialLogging::info(("DEBUG: UNRECOGNIZED Loop Step: " + String(loopState.Step)).c_str());
       break;
     }
+  
 
     checkActualGear();
     updateGearNumberDigitalOutputs(shiftData.targetGear);
