@@ -216,7 +216,7 @@ void Motor::run()
         }
         else
         {
-            _deltaPulses += _outputPower * _cfg->maxVelocity * _cfg->pulsesPerUnit * double(_scanTimeUs) / 1000000.0; // assumes instantate acceleration
+            _deltaPulses += _outputPower * _cfg->maxVelocity * _cfg->pulsesPerUnit * double(_scanTimeUs) / 1000000.0; // assumes instantaneous acceleration
         }
 
         int32_t update_pulses = round(_deltaPulses);
