@@ -1,6 +1,4 @@
-#ifndef ISERIAL_H
-#define ISERIAL_H
-
+#pragma once
 // install SafeString library from Library manager or from https://www.forward.com.au/pfod/ArduinoProgramming/SafeString/index.html
 // #include <SafeString.h>
 // the loopTimer, BufferedOutput, SafeStringReader and millisDelay are all included in SafeString library V3+
@@ -129,5 +127,3 @@ public:
   void resetModeTime();
   void setAutoSendStatus(bool val);
 };
-
-#endif

@@ -1,24 +1,24 @@
 // SerialLogging.cpp (Rewritten with custom byte-wise ring buffer)
 #include "SerialLogging.h"
 
-uint8_t SerialLogging::queue[SerialLogging::BYTE_BUFFER_SIZE];
-volatile size_t SerialLogging::head = 0;
-volatile size_t SerialLogging::tail = 0;
-uint8_t SerialLogging::output_BUFFER[SerialLogging::BUFFER_SIZE];
-BufferedOutput SerialLogging::output(sizeof(SerialLogging::output_BUFFER), SerialLogging::output_BUFFER, DROP_IF_FULL);
-bool SerialLogging::debug = false;
+uint8_t Logger::queue[Logger::BYTE_BUFFER_SIZE];
+volatile size_t Logger::head = 0;
+volatile size_t Logger::tail = 0;
+uint8_t Logger::output_BUFFER[Logger::BUFFER_SIZE];
+BufferedOutput Logger::output(sizeof(Logger::output_BUFFER), Logger::output_BUFFER, DROP_IF_FULL);
+bool Logger::debug = false;
 
-bool SerialLogging::isFull()
+bool Logger::isFull()
 {
   return ((tail + 1) % BYTE_BUFFER_SIZE) == head; // Leave one slot empty to distinguish full/empty
 }
 
-bool SerialLogging::isEmpty()
+bool Logger::isEmpty()
 {
   return head == tail;
 }
 
-bool SerialLogging::pushByte(uint8_t byte)
+bool Logger::pushByte(uint8_t byte)
 {
   if (isFull())
   {
@@ -36,7 +36,7 @@ bool SerialLogging::pushByte(uint8_t byte)
   return true;
 }
 
-bool SerialLogging::popByte(uint8_t &byte)
+bool Logger::popByte(uint8_t &byte)
 {
   if (isEmpty())
   {
@@ -47,7 +47,7 @@ bool SerialLogging::popByte(uint8_t &byte)
   return true;
 }
 
-void SerialLogging::init()
+void Logger::init()
 {
   Serial.begin(115200);
   output.connect(Serial, 115200);
@@ -56,7 +56,7 @@ void SerialLogging::init()
   setDebug(false); // Default to no debug
 }
 
-void SerialLogging::add(const char *fmt, ...)
+void Logger::add(const char *fmt, ...)
 {
   if (!debug)
   {
@@ -82,7 +82,7 @@ void SerialLogging::add(const char *fmt, ...)
   interrupts();
 }
 
-void SerialLogging::info(const char *fmt, ...)
+void Logger::info(const char *fmt, ...)
 {
   if (!debug)
   {
@@ -119,7 +119,7 @@ void SerialLogging::info(const char *fmt, ...)
   interrupts();
 }
 
-void SerialLogging::warn(const char *fmt, ...)
+void Logger::warn(const char *fmt, ...)
 {
   if (!debug)
   {
@@ -165,7 +165,7 @@ void SerialLogging::warn(const char *fmt, ...)
   interrupts();
 }
 
-void SerialLogging::error(const char *fmt, ...)
+void Logger::error(const char *fmt, ...)
 {
   if (!debug)
   {
@@ -207,11 +207,11 @@ void SerialLogging::error(const char *fmt, ...)
 }
 
 // prepend with data header
-void SerialLogging::publishData(byte *data, size_t len, uint8_t id)
+void Logger::publishData(byte *data, size_t len, uint8_t id)
 {
   if (len > 255)
   {
-    SerialLogging::warn("publishData: Data length %u exceeds max 255", len);
+    Logger::warn("publishData: Data length %u exceeds max 255", len);
     return;
   }
 
@@ -226,7 +226,7 @@ void SerialLogging::publishData(byte *data, size_t len, uint8_t id)
   if (required > available)
   {
     interrupts();
-    SerialLogging::warn("publishData: Insufficient buffer space");
+    Logger::warn("publishData: Insufficient buffer space");
     return;
   }
   // in need to create a serial protocol that provides a reliable starting byte, followed by the data length and then the data itself
@@ -250,7 +250,7 @@ void SerialLogging::publishData(byte *data, size_t len, uint8_t id)
   interrupts();
 }
 
-void SerialLogging::process()
+void Logger::process()
 {
   uint8_t byteVal;
   while (output.availableForWrite() > 0)
@@ -267,7 +267,7 @@ void SerialLogging::process()
   output.nextByteOut(); // Release bytes to Serial non-blockingly
 }
 
-void SerialLogging::setDebug(bool state)
+void Logger::setDebug(bool state)
 {
   debug = state;
 }

@@ -43,7 +43,7 @@ void Motor::runProcess()
         {
             homeToHardstop(_cfg->homingDir, true);
             homeToSwitch(_cfg->homingDir, Sensors::HOME_SW, true);
-            SerialLogging::info("Motor %s - process Step: %d", _cfg->name.c_str(), processState.Step);
+            Logger::info("Motor %s - process Step: %d", _cfg->name.c_str(), processState.Step);
             _isHomed = false;
         }
         else
@@ -861,6 +861,11 @@ byte *Motor::getMotorData()
     memcpy(data + i, &processState.Step, size);
     i += size;
 
+    // motor output power - int16 (2 bytes)
+    int16_t power = round(_outputPower * 100.0); // convert to int16_t PWR X 100
+    size = sizeof(power);
+    memcpy(data + i, &power, size);
+
     return data;
 }
 
@@ -869,7 +874,7 @@ void Motor::debugPrintln(String msg)
     if (_debug)
     {
         String fullMsg = _motorPrefix + msg;
-        SerialLogging::info(fullMsg.c_str());
+        Logger::info(fullMsg.c_str());
     }
 }
 

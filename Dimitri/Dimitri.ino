@@ -1,7 +1,7 @@
-#define VERSION_NUMBER 46
-
-#define UPDATE_TIME_US 400 // time that the motor velocities are updated, motor run() are called at half this rate
+#define VERSION_NUMBER 48
+constexpr int LOOP_UPDATE_RATE_US = 1200; // main loop update rate (1065us is about the fastest it can go with current code)
 #define UI_UPDATE_RATE_MS 100
+#define CSV_UPDATE_RATE_CYCLES 2 //
 
 #include <Arduino.h>
 #include "Arduino.h"
@@ -11,20 +11,27 @@
 #include "CustomDataTypes.h"
 #include "GearMap.h"
 #include "Motor.h"
-#include "SerialLogging.h"
-#include "cfg.h"
+// #include "SerialLogging.h"
+#include "FastLogger.h"
+#include "Packets.h"
+#include <DueTimer.h>
+
+// Motor control update frequency
+constexpr float CONTROL_FREQ_HZ = 1e6 * NUM_MOTORS / LOOP_UPDATE_RATE_US; // motor control update frequency
+constexpr float CONTROL_PERIOD_US = 1e6 / CONTROL_FREQ_HZ;
+
 
 // OPERATING MODES: IO_CHECKOUT, MANUAL_CLUTCH_JOGGING, MANUAL_CLUTCH_ENGAGE, MANUAL_LINEAR_P, MANUAL_LINEAR_S, AUTO
 const OperatingModes OPERATING_MODE = OperatingModes::MANUAL_CLUTCH_ENGAGE; // set to OperatingModes::AUTO to run the system in debug mode
-const DiagnosticModes DIAGNOSTIC_MODE = DiagnosticModes::UI; // set to DiagnosticModes::SERIAL_OUTPUT to output diagnostic data over serial, otherwise UI mode
+const DiagnosticModes DIAGNOSTIC_MODE = DiagnosticModes::UI;               // set to DiagnosticModes::SERIAL_OUTPUT to output diagnostic data over serial, otherwise UI mode
 
 const unsigned long DELAY_LINEAR_MOTION_AFTER_CLUTCH_REACHES_SHIFT_POSITION_MS = 200; // ms, time to wait after clutch reaches shifting position before linear motor motion is allowed
 
-const bool AUTO_RESET = false;                                                        // if this is true, the system will automatically reset when inactive (no errors)
-const bool SHIFT_BUTTONS_DISABLED = false;                                            // if this is true, the shift buttons will be disabled (ignored)
-                                                    
+const bool AUTO_RESET = false;             // if this is true, the system will automatically reset when inactive (no errors)
+const bool SHIFT_BUTTONS_DISABLED = false; // if this is true, the shift buttons will be disabled (ignored)
+
 uint8_t motorId = 0;
-bool inputs[8];
+bool inputs[sizeof(byte)];
 
 ////////////////////////////////////////////////////
 // OUTPUTS
@@ -35,7 +42,6 @@ struct Outputs
   bool DisplayBits[NUM_BITS] = {false, false, false, false};
 };
 Outputs outputs;
-
 
 MotionData motionData;
 GearMap gearMap = GearMap();
@@ -83,15 +89,20 @@ StateManager clutchDeviceState = StateManager("clutchEngageState");
 
 void setup()
 {
-  SerialLogging::init();
+  // Logger::init();
+  Serial.begin(115200);
+  while (!Serial)
+  {
+  }
+  delay(500);
   if (DIAGNOSTIC_MODE == DiagnosticModes::SERIAL_OUTPUT)
   {
-    SerialLogging::setDebug(true);
+    Logger::setDebug(true);
     Serial.println("");
     String versionNumberString = "VERSION NUMBER ---> " + String(VERSION_NUMBER);
-    SerialLogging::info(versionNumberString.c_str());
+    Logger::info(versionNumberString.c_str());
     String operatingModeString = "OPERATING MODE ---> " + getOperatingModeToString(OPERATING_MODE);
-    SerialLogging::info(operatingModeString.c_str());
+    Logger::info(operatingModeString.c_str());
     loopState.setDebug(true);
     clutchDeviceState.setDebug(true);
     motors[Motors::CLUTCH].setDebug(false);
@@ -132,6 +143,11 @@ void setup()
   }
   // Timer1.initialize(UPDATE_TIME_US); // Initialize timer to trigger every X microseconds
   // Timer1.attachInterrupt(updateMotors, UPDATE_TIME_US);
+  // Attach ISR to Timer1 (can use Timer0..5)
+
+  // if using DUE board
+  Timer1.attachInterrupt(updateISR)
+      .start(CONTROL_PERIOD_US); // period in microseconds
 }
 
 // TASK: MOVE CLUTCH TO SHIFTING POSITION
@@ -156,7 +172,8 @@ bool disengageClutch(bool reset = false)
       clutchDeviceState.transitionToStep(1);
       break;
 
-    case 1: clutchDeviceState.StepDescription("enable clutch");
+    case 1:
+      clutchDeviceState.StepDescription("enable clutch");
       motors[Motors::CLUTCH].enable();
       if (motors[Motors::CLUTCH].getState() == Motor::States::IDLE)
       {
@@ -164,7 +181,8 @@ bool disengageClutch(bool reset = false)
       }
       break;
 
-    case 10: clutchDeviceState.StepDescription("move to shift pos");
+    case 10:
+      clutchDeviceState.StepDescription("move to shift pos");
       motors[Motors::CLUTCH].moveAbs(POSITION_CLUTCH_SHIFTING);
 
       if (motors[Motors::CLUTCH].getState() == Motor::States::MOVING)
@@ -173,7 +191,8 @@ bool disengageClutch(bool reset = false)
       }
       break;
 
-    case 11: clutchDeviceState.StepDescription("wait to reach pos");
+    case 11:
+      clutchDeviceState.StepDescription("wait to reach pos");
       if (motors[Motors::CLUTCH].getState() == Motor::States::IDLE)
       {
         motors[Motors::CLUTCH].hold_position();
@@ -181,7 +200,8 @@ bool disengageClutch(bool reset = false)
       }
       break;
 
-    case 20: clutchDeviceState.StepDescription("hold position");
+    case 20:
+      clutchDeviceState.StepDescription("hold position");
       motors[Motors::CLUTCH].hold_position();
       if (clutchDeviceState.getStepActiveTime() > DELAY_LINEAR_MOTION_AFTER_CLUTCH_REACHES_SHIFT_POSITION_MS)
       {
@@ -212,7 +232,8 @@ bool engageClutch(bool reset = false)
 
     switch (clutchDeviceState.Step)
     {
-    case 0: clutchDeviceState.StepDescription("check start pos");
+    case 0:
+      clutchDeviceState.StepDescription("check start pos");
       if (abs(motors[Motors::CLUTCH].actualPosition - POSITION_CLUTCH_SHIFTING) < 5.0)
       {
         clutchDeviceState.transitionToStep(1);
@@ -223,7 +244,8 @@ bool engageClutch(bool reset = false)
       }
       break;
 
-    case 1: clutchDeviceState.StepDescription("enable clutch");
+    case 1:
+      clutchDeviceState.StepDescription("enable clutch");
       motors[Motors::CLUTCH].enable();
       if (motors[Motors::CLUTCH].getState() == Motor::States::IDLE)
       {
@@ -231,7 +253,8 @@ bool engageClutch(bool reset = false)
       }
       break;
 
-    case 10: clutchDeviceState.StepDescription("move to pedaling pos");
+    case 10:
+      clutchDeviceState.StepDescription("move to pedaling pos");
       motors[Motors::CLUTCH].moveAbs(POSITION_CLUTCH_PEDALING + 360.0);
 
       if (motors[Motors::CLUTCH].getState() == Motor::States::MOVING)
@@ -240,7 +263,8 @@ bool engageClutch(bool reset = false)
       }
       break;
 
-    case 11: clutchDeviceState.StepDescription("wait to reach pos");
+    case 11:
+      clutchDeviceState.StepDescription("wait to reach pos");
       if (motors[Motors::CLUTCH].getState() == Motor::States::IDLE)
       {
         clutchDeviceState.transitionToStep(20);
@@ -275,7 +299,8 @@ bool engageClutch(bool reset = false)
       clutchDeviceState.transitionToStep(1000);
       break;
 
-    case 1000: clutchDeviceState.StepDescription("done: now holding pos");
+    case 1000:
+      clutchDeviceState.StepDescription("done: now holding pos");
       motors[Motors::CLUTCH].hold_position();
       return true;
       break;
@@ -332,23 +357,23 @@ bool processShiftReqNum(int shiftType, int targetGearParam)
   case Shifter::ShiftTypes::NONE:
     break;
   case Shifter::ShiftTypes::SUPER_UP:
-    SerialLogging::info("SUPER UP SHIFT");
+    Logger::info("SUPER UP SHIFT");
     targetChanged = setTargetGear(NUM_GEARS);
     break;
   case Shifter::ShiftTypes::UP:
-    SerialLogging::info("UP SHIFT");
+    Logger::info("UP SHIFT");
     targetChanged = setTargetGear(shiftData.targetGear + 1);
     break;
   case Shifter::ShiftTypes::SUPER_DOWN:
-    SerialLogging::info("SUPER DOWN SHIFT");
+    Logger::info("SUPER DOWN SHIFT");
     targetChanged = setTargetGear(1);
     break;
   case Shifter::ShiftTypes::DOWN:
-    SerialLogging::info("DOWN SHIFT");
+    Logger::info("DOWN SHIFT");
     targetChanged = setTargetGear(shiftData.targetGear - 1);
     break;
   case Shifter::ShiftTypes::ABS:
-    SerialLogging::info("ABS SHIFT TO: {}", targetGearParam);
+    Logger::info("ABS SHIFT TO: {}", targetGearParam);
     targetChanged = setTargetGear(targetGearParam);
     break;
   }
@@ -357,8 +382,8 @@ bool processShiftReqNum(int shiftType, int targetGearParam)
 
 void printMotionData()
 {
-  SerialLogging::info("Target Gear: {}", shiftData.targetGear);
-  SerialLogging::info("Actual Gear: {}", motionData.actualGear);
+  Logger::info("Target Gear: {}", shiftData.targetGear);
+  Logger::info("Actual Gear: {}", motionData.actualGear);
 }
 
 // void sendShiftData()
@@ -458,7 +483,7 @@ void triggerError(String code)
     if (errors.list[i] == "" && isNewCode)
     {
       errors.list[i] = code;
-      SerialLogging::error(code.c_str());
+      Logger::error(code.c_str());
       break;
     }
   }
@@ -501,11 +526,11 @@ void runMotorManualMode(int motor_id)
     {
       motors[motor_id].jogUsingPower(MANUAL_CLUTCH_JOG_PWR);
       String infoMsg = String(motors[motor_id].actualPosition) + " deg";
-      SerialLogging::info(infoMsg.c_str());
+      Logger::info(infoMsg.c_str());
     }
     if (motors[motor_id].actualPosition < lastPosition)
     {
-      SerialLogging::error("motor position decreased when it was expected to increase");
+      Logger::error("motor position decreased when it was expected to increase");
       loopState.transitionToStep(Modes::ERROR);
     }
   }
@@ -517,12 +542,12 @@ void runMotorManualMode(int motor_id)
     {
       motors[motor_id].jogUsingPower(-MANUAL_CLUTCH_JOG_PWR);
       String infoMsgDown = String(motors[motor_id].actualPosition) + " deg";
-      SerialLogging::info(infoMsgDown.c_str());
+      Logger::info(infoMsgDown.c_str());
     }
 
     if (motors[motor_id].actualPosition > lastPosition)
     {
-      SerialLogging::error("motor position increased when it was expected to decrease");
+      Logger::error("motor position increased when it was expected to decrease");
       loopState.transitionToStep(Modes::ERROR);
     }
   }
@@ -570,7 +595,7 @@ bool moveLinearMotorsToGear(int8_t targetGear, bool reset = false)
       else if (stateGearMove.getStepActiveTime() > 5000)
       {
         triggerError("moveLinearMotorsToGear() - Linear motors did not reach target gear position in time");
-        SerialLogging::info("moveLinearMotorsToGear() - Linear motors did not reach target gear position in time");
+        Logger::info("moveLinearMotorsToGear() - Linear motors did not reach target gear position in time");
       }
       break;
     case 1000:
@@ -597,7 +622,7 @@ void runLinearMotorManualMode(uint8_t motor_id)
     // analogWrite(PIN_LINEAR_P_PWM, 255);
     // digitalWrite(PIN_LINEAR_P_DIR, !motorCfgs[Motors::LINEAR].invertDir);
     String infoMsgUp = String(motors[motor_id].actualPosition) + " deg";
-    SerialLogging::info(infoMsgUp.c_str());
+    Logger::info(infoMsgUp.c_str());
     motors[motor_id].jogUsingPower(MANUAL_LINEAR_JOG_PWR);
     // SerialLogging::info("jogging motor %d positively - position: %f deg", motor_id, motors[motor_id].actualPosition);
 
@@ -608,7 +633,7 @@ void runLinearMotorManualMode(uint8_t motor_id)
     // analogWrite(PIN_LINEAR_P_PWM, 255);
     // digitalWrite(PIN_LINEAR_P_DIR, motorCfgs[Motors::LINEAR].invertDir);
     String infoMsgDown = String(motors[motor_id].actualPosition) + " deg";
-    SerialLogging::info(infoMsgDown.c_str());
+    Logger::info(infoMsgDown.c_str());
     motors[motor_id].jogUsingPower(-MANUAL_LINEAR_JOG_PWR);
     // SerialLogging::info("jogging motor %d negatively - position: %f deg", motor_id, motors[motor_id].actualPosition);
     //  motors[Motors::LINEAR].moveAbs(6.0);
@@ -623,22 +648,11 @@ void runLinearMotorManualMode(uint8_t motor_id)
 
 bool runMotorsThisScan = false;
 
+unsigned long lastMotorUpdateUs = 0;
 void updateMotors()
 {
-  //motors[motorId].update(); moved this to run()
   motors[motorId].run();
   motorId = (motorId + 1) % NUM_MOTORS;
-
-  // return true;  // Indicate that the update was performed
-  //  runMotorsThisScan = !runMotorsThisScan;
-  //  for (int i = 0; i < NUM_MOTORS; i++)
-  //  {
-  //    motors[i].update();
-  //    if (runMotorsThisScan)
-  //    {
-  //      //motors[i].run();
-  //    }
-  //  }
 }
 
 StateManager stateManagerHRLM = StateManager("stateMngrHomeLinearMotors"); // state manager for homing routine linear motors
@@ -679,7 +693,7 @@ bool runHomingRoutineLinearMotors(bool reset = false)
       disengageClutch();
       if (motors[Motors::LINEAR_P].getState() == Motor::States::IDLE && motors[Motors::LINEAR_S].getState() == Motor::States::IDLE)
       {
-        SerialLogging::info("HOMING - Moving primary motor to postive hardstop and secondary motor to negative hard stop");
+        Logger::info("HOMING - Moving primary motor to postive hardstop and secondary motor to negative hard stop");
         stateManagerHRLM.transitionToStep(50);
       }
       break;
@@ -719,7 +733,7 @@ bool runHomingRoutineLinearMotors(bool reset = false)
 
       if (motors[Motors::LINEAR_P].getState() == Motor::States::MOVING && motors[Motors::LINEAR_S].getState() == Motor::States::MOVING)
       {
-        SerialLogging::info("HOMING - Moving linear motors to 1st gear");
+        Logger::info("HOMING - Moving linear motors to 1st gear");
         stateManagerHRLM.transitionToStep(61);
       }
       break;
@@ -728,14 +742,14 @@ bool runHomingRoutineLinearMotors(bool reset = false)
       disengageClutch();
       if (motors[Motors::LINEAR_P].atPosition && motors[Motors::LINEAR_P].getState() == Motor::States::IDLE && motors[Motors::LINEAR_S].atPosition && motors[Motors::LINEAR_S].getState() == Motor::States::IDLE)
       {
-        SerialLogging::info("HOMING - Linear motors are at gear 1 positions");
+        Logger::info("HOMING - Linear motors are at gear 1 positions");
         engageClutch(true);
         stateManagerHRLM.transitionToStep(70);
       }
       else if (stateManagerHRLM.getStepActiveTime() > 5000)
       {
         triggerError("runHomingRoutineLinearMotors() - Linear motors did not reach gear 1 positions in time");
-        SerialLogging::error("HOMING - Linear motors did not reach gear 1 positions in time");
+        Logger::error("HOMING - Linear motors did not reach gear 1 positions in time");
         // iSerial.status.step = 911; // go to error step
       }
 
@@ -780,36 +794,35 @@ void checkActualGear()
   }
 }
 
-const uint8_t DIMITRI_DATA_SIZE = 4; // 2 bytes for loopStep and 1 byte for operation mode and 1 byte for inputs
-const uint8_t PACKET_SIZE = NUM_MOTORS * MOTOR_DATA_SIZE + DIMITRI_DATA_SIZE; // 2 bytes for loopStep and 1 byte for operation mode
-byte *publishedData = new byte[PACKET_SIZE];
-void updatePublishedDataChunk()
+byte *publishedData = new byte[MAX_PACKET_SIZE];
+void updateDimitriPacket()
 {
-    int size = 0;
-    //static int prevStep = -1;
+  int size = 0;
+  // static int prevStep = -1;
 
-    for (int i = 0; i < NUM_MOTORS; i++)
-    {
-        byte *motorData = motors[i].getMotorData();
-        memcpy(publishedData + size, motorData, MOTOR_DATA_SIZE);
-        size += MOTOR_DATA_SIZE;
-        delete[] motorData;
-    }
+  for (int i = 0; i < NUM_MOTORS; i++)
+  {
+    byte *motorData = motors[i].getMotorData();
+    memcpy(publishedData + size, motorData, MOTOR_DATA_SIZE);
+    size += MOTOR_DATA_SIZE;
+    delete[] motorData;
+  }
 
-    // convert loopState.Step to bytes (little-endian)
-    int16_t loopStepInt16 = static_cast<int16_t>(loopState.Step);
-    publishedData[size++] = static_cast<byte>(loopStepInt16 & 0xFF);       // LSB
-    publishedData[size++] = static_cast<byte>((loopStepInt16 >> 8) & 0xFF); // MSB
+  // convert loopState.Step to bytes (little-endian)
+  int16_t loopStepInt16 = static_cast<int16_t>(loopState.Step);
+  publishedData[size++] = static_cast<byte>(loopStepInt16 & 0xFF);        // LSB
+  publishedData[size++] = static_cast<byte>((loopStepInt16 >> 8) & 0xFF); // MSB
 
-    // convert loopState.OperationMode to bytes (little-endian)
-    publishedData[size++] = static_cast<uint8_t>(OPERATING_MODE);
+  // convert loopState.OperationMode to bytes (little-endian)
+  publishedData[size++] = static_cast<uint8_t>(OPERATING_MODE);
 
-    // inputs - 1 byte
-    uint8_t inputByte = 0;
-    for (int i = 0; i < 8; i++) {
-      inputByte |= (inputs[i] ? 1 : 0) << i;
-    }
-    publishedData[size++] = inputByte;
+  // inputs - 1 byte
+  uint8_t inputByte = 0;
+  for (int i = 0; i < 8; i++)
+  {
+    inputByte |= (inputs[i] ? 1 : 0) << i;
+  }
+  publishedData[size++] = inputByte;
 }
 // sets the digital outputs for the gear number to be received by the display device
 void updateGearNumberDigitalOutputs(int num)
@@ -962,10 +975,9 @@ String getSensorStateString(bool state)
   return state ? "ON" : "OFF";
 }
 
-
 void readInputs()
 {
-  inputs[Inputs::ShiftDownSw] = !digitalRead(PIN_SHIFT_DOWN); 
+  inputs[Inputs::ShiftDownSw] = !digitalRead(PIN_SHIFT_DOWN);
   inputs[Inputs::ShiftUpSw] = !digitalRead(PIN_SHIFT_UP);
   inputs[Inputs::ClutchNegLimSw] = !digitalRead(PIN_CLUTCH_NEG_LIM);
   inputs[Inputs::ClutchPosLimSw] = !digitalRead(PIN_CLUTCH_POS_LIM);
@@ -975,7 +987,7 @@ void readInputs()
 // returns true if the target changed from previous
 bool setTargetGear(int targetGearNum)
 {
-  SerialLogging::info("setTargetGear()");
+  Logger::info("setTargetGear()");
   int prevTargetGear = shiftData.targetGear;
   if (targetGearNum > NUM_GEARS)
   {
@@ -994,7 +1006,7 @@ bool setTargetGear(int targetGearNum)
   bool targetChanged = shiftData.targetGear != prevTargetGear;
   if (targetChanged)
   {
-    SerialLogging::info(String(shiftData.targetGear).c_str());
+    Logger::info(String(shiftData.targetGear).c_str());
   }
   return targetChanged;
 }
@@ -1016,386 +1028,423 @@ int getRandomNumber(int min, int max) // get reandom
 bool prevResetReq = false;
 
 uint8_t motorIdLoop = 0;
-unsigned long lastUpdateScanUs = 0;
+unsigned long timeNowUs = 0;
+// unsigned long lastUpdateScanUs = 0;
 unsigned long lastLoopUpdateScanUs = 0;
-void loop()
+unsigned long loopScanTimeUs = 0;
+
+unsigned long motorUpdateScanTimeUs = 0;
+unsigned long csvUpdateCycleCount = 0;
+bool csvHeaderWritten = false;
+void runDimitri()
 {
-  // SerialLogging::info("Dimitri loop() started");
+  // SCAN TIME MONITOR
 
-  unsigned long timeNowUs = micros();
-  if ((timeNowUs - lastUpdateScanUs) >= UPDATE_TIME_US)
+  loopScanTimeUs = timeNowUs - lastLoopUpdateScanUs;
+  lastLoopUpdateScanUs = timeNowUs;
+
+  loopState.run();
+  readInputs();
+  int shiftTypeReq = checkForGearShiftRequests();
+  // timeNow = millis();
+
+  // detect resetRequest
+  if (inputs[Inputs::ShiftDownSw] && inputs[Inputs::ShiftUpSw])
   {
-    updateMotors();
-    SerialLogging::process();
-    //Serial.println(timeNowUs - lastUpdateScanUs);
-    lastUpdateScanUs = timeNowUs;
-  }
-  else if (timeNowUs - lastLoopUpdateScanUs > (NUM_MOTORS - 1) * UPDATE_TIME_US && motorId == 0)
-  {
-    loopState.run();
-    // lastUpdateUs = timeNowUs;
-    //Serial.println(timeNowUs - lastLoopUpdateScanUs);
-    lastLoopUpdateScanUs = timeNowUs;
-
-    readInputs();
-    int shiftTypeReq = checkForGearShiftRequests();
-    // timeNow = millis();
-
-    // detect resetRequest
-    if (inputs[Inputs::ShiftDownSw] && inputs[Inputs::ShiftUpSw])
-    {
-      resetReq = true && !prevResetReq;
-      prevResetReq = true;
-    }
-    else
-    {
-      resetReq = false;
-      prevResetReq = false;
-    }
-
-    // AUTO ABORT IF ERROR
-    if (errors.present && loopState.Step >= int(Modes::RESETTING))
-    {
-      loopState.transitionToStep(Modes::ABORTING);
-    }
-    else if (resetReq && loopState.Step == int(Modes::IDLE))
-    {
-      // iSerial.setNewMode(Modes::RESETTING);
-    }
-
-    switch (loopState.Step)
-    {
-    case Modes::ABORTING:
-      loopState.StepDescription("ABORTING - turning all motors off");
-      turnAllOff();
-      loopState.transitionToStep(Modes::KILLED);
-      break;
-    case Modes::KILLED:
-      loopState.StepDescription("KILLED - all motors off");
-      if (loopState.FirstScan)
-      {
-        turnAllOff();
-      }
-
-      if (errors.present)
-      {
-        loopState.transitionToStep(Modes::ERROR);
-      }
-      else
-      {
-        loopState.transitionToStep(Modes::INACTIVE);
-      }
-
-      break;
-    case Modes::ERROR:
-      loopState.StepDescription("ERROR - handling error state");
-      shiftData.targetGear = 0;
-      isHomed = false;
-      if (loopState.FirstScan)
-      {
-        turnAllOff();
-      }
-      else
-      {
-        // auto clear the errors after 5 seconds
-        if (resetReq)
-        {
-          clearErrors();
-        }
-        if (!errors.present)
-        {
-          // iSerial.setNewMode(Modes::INACTIVE);
-          loopState.transitionToStep(Modes::INACTIVE);
-        }
-        if (loopState.getStepActiveTime() > 3000 && false)
-        {
-          SerialLogging::error("ERROR: %s", errors.list[0].c_str());
-        }
-      }
-
-      break;
-    case Modes::INACTIVE:
-      loopState.StepDescription("INACTIVE - motors off, waiting for reset");
-      // turnAllOff();
-      if (OPERATING_MODE == OperatingModes::AUTO || OPERATING_MODE == OperatingModes::MANUAL_CLUTCH_ENGAGE)
-      {
-        if (!AUTO_RESET)
-        {
-          // iSerial.debugPrintln("Press both shift buttons to reset");
-        }
-
-        if (AUTO_RESET || (resetReq))
-        {
-          loopState.transitionToStep(Modes::RESETTING);
-        }
-      }
-      else
-      {
-        loopState.transitionToStep(Modes::MANUAL);
-      }
-      break;
-
-    case Modes::RESETTING:
-      loopState.StepDescription("RESETTING - performing homing routines");
-
-      // skip homing if already homed
-      if (isHomed)
-      {
-        // SerialLogging::info("RESETTING: already homed, skipping homing routine");
-        if (enableAllMotors())
-        {
-          loopState.transitionToStep(Modes::IDLE);
-        }
-      }
-      else
-      {
-        // SerialLogging::info("RESETTING: running homing routines");
-        //  runHomingRoutineClutchMotor(true);
-        // motors[Motors::CLUTCH].setDebug(true);
-        loopState.transitionToStep(51);
-      }
-      break;
-
-    case 51:
-      loopState.StepDescription("RESETTING - requesting clutch homing process");
-      // Initialize any variables or states needed before starting homing
-      // motors[Motors::CLUTCH].requestProcess(Motor::MotorProcesses::HOME);
-      if (loopState.FirstScan)
-      {
-        motors[Motors::CLUTCH].requestProcess(Motor::MotorProcesses::HOME);
-      }
-      else if (motors[Motors::CLUTCH].ActiveProcess == Motor::MotorProcesses::HOME && !motors[Motors::CLUTCH].isHomed)
-      {
-        loopState.transitionToStep(53);
-      }
-      else
-      {
-        triggerError("RESETTING: request clutch motor homing was rejected");
-      }
-      break;
-
-    case 53:
-      loopState.StepDescription("Waiting for clutch motor to finish homing");
-      // Wait for clutch motor to reach disengaged position
-      // SerialLogging::info("Clutch Motor State: %d", motors[Motors::CLUTCH].getState());
-      if (motors[Motors::CLUTCH].ActiveProcess == Motor::MotorProcesses::NONE_PROCESS && motors[Motors::CLUTCH].isHomed)
-      {
-        if (OPERATING_MODE == OperatingModes::MANUAL_CLUTCH_ENGAGE)
-        {
-          loopState.transitionToStep(Modes::MANUAL);
-        }
-        else
-        {
-          loopState.transitionToStep(55);
-        }
-      }
-      break;
-
-    case 55:
-      loopState.StepDescription("RESETTING - moving clutch to engaged pedaling position");
-      if (loopState.FirstScan)
-      {
-        // Start moving clutch to engaged position
-        motors[Motors::CLUTCH].moveAbs(POSITION_CLUTCH_PEDALING);
-      }
-
-      if (motors[Motors::CLUTCH].getState() == Motor::States::MOVING)
-      {
-        loopState.transitionToStep(56);
-      }
-      break;
-
-    case 56:
-      loopState.StepDescription("Waiting for clutch motor to reach pedaling position");
-      // Wait for clutch motor to reach engaged position
-      if (motors[Motors::CLUTCH].atPositionAndStill && motors[Motors::CLUTCH].getState() == Motor::States::IDLE)
-      {
-        setClutchRolloverPosition();
-        loopState.transitionToStep(60);
-      }
-
-      else if (loopState.getStepActiveTime() > 5000)
-      {
-        triggerError("RESETTING: Clutch motor did not reach pedaling position in time");
-      }
-      break;
-
-    case 60:
-      loopState.StepDescription("RESETTING - running homing routine for linear motors");
-      if (loopState.FirstScan)
-      {
-        runHomingRoutineLinearMotors(true);
-      }
-      else if (runHomingRoutineLinearMotors())
-      {
-        isHomed = true;
-        loopState.transitionToStep(Modes::IDLE);
-      }
-
-      break;
-
-    case Modes::IDLE:
-      loopState.StepDescription("IDLE - waiting for gear change request");
-      if (gearChangeReq)
-      {
-        processShiftReqNum(shiftTypeReq, shiftTargetGearParam);
-        // shiftStartTimeMs = timeNow;
-        loopState.transitionToStep(Modes::SHIFTING);
-      }
-      else if (!atTarget)
-      {
-        // triggerError(Errors::MOTOR_NOT_AT_TARGET_WHILE_IDLE);
-        SerialLogging::info("linear motors not at target while in idle, adjust position now");
-        loopState.transitionToStep(Modes::SHIFTING);
-      }
-      else if (resetReq)
-      {
-        loopState.transitionToStep(Modes::RESETTING);
-      }
-
-      break;
-
-    case Modes::SHIFTING:
-      loopState.StepDescription("SHIFTING - processing gear shift");
-      if (loopState.FirstScan)
-      {
-        disengageClutch(true);
-      }
-      else
-      {
-        if (disengageClutch())
-        {
-          moveLinearMotorsToGear(shiftData.targetGear, true);
-          loopState.transitionToStep(210);
-        }
-      }
-      break;
-
-    case 210:
-      loopState.StepDescription("SHIFTING - moving linear motors to target gear");
-      disengageClutch();
-
-      if (moveLinearMotorsToGear(shiftData.targetGear) && atTarget)
-      {
-        loopState.transitionToStep(220);
-      }
-      else if (gearChangeReq)
-      {
-        processShiftReqNum(shiftTypeReq, shiftTargetGearParam);
-        // iSerial.resetModeTime();
-        // loopState.transitionToStep(1);
-      }
-
-      break;
-
-    case 220:
-      loopState.StepDescription("SHIFTING - engaging clutch");
-      if (loopState.FirstScan)
-      {
-        // digitalWrite(PIN_CLUTCH_SOL, !SOL_ON);
-        engageClutch(true);
-        // reset mode time
-      }
-      else if (engageClutch())
-      {
-        // shiftTimeMs = timeNow - shiftStartTimeMs;
-        loopState.transitionToStep(Modes::IDLE);
-      }
-      else if (loopState.getStepActiveTime() > 4000)
-      {
-        triggerError("SHIFTING: TOGGLE_MOTOR_ENGAGE_MOVE_TIMED_OUT");
-      }
-
-      break;
-
-    case Modes::MANUAL:
-      if (loopState.FirstScan)
-      {
-        disengageClutch(true);
-      }
-
-      switch (OPERATING_MODE)
-      {
-      case OperatingModes::MANUAL_CLUTCH_JOGGING:
-        loopState.StepDescription("MANUAL - clutch jogging - use up/down");
-        runMotorManualMode(Motors::CLUTCH);
-        break;
-      case OperatingModes::MANUAL_CLUTCH_ENGAGE:
-        if (inputs[Inputs::ShiftUpSw])
-        {
-          disengageClutch(true);
-          loopState.transitionToStep(1150);
-        }
-        break;
-      case OperatingModes::MANUAL_LINEAR_P:
-        loopState.StepDescription("MANUAL - linear P jogging - use up/down");
-        runMotorManualMode(Motors::LINEAR_P);
-        break;
-      case OperatingModes::MANUAL_LINEAR_S:
-        loopState.StepDescription("MANUAL - linear S jogging - use up/down");
-        runMotorManualMode(Motors::LINEAR_S);
-        break;
-      }
-
-      break;
-    case 1150:
-      loopState.StepDescription("waiting for clutch disengage");
-      if (disengageClutch() && inputs[Inputs::ShiftUpSw])
-      {
-        loopState.transitionToStep(1151);
-      }
-      break;
-
-      case 1151:
-      loopState.StepDescription("holding at disengage");
-      if (loopState.getStepActiveTime() > 2000)
-      {
-        engageClutch(true);
-        loopState.transitionToStep(1155);
-      }
-
-      break;
-
-    case 1155:
-      loopState.StepDescription("waiting for clutch engage");
-      if (engageClutch())
-      {
-        loopState.transitionToStep(1156);
-      }
-      break;
-
-      case 1156:
-      loopState.StepDescription("re-engaged");
-      if (loopState.getStepActiveTime() > 2000)
-      {
-        disengageClutch(true);
-        loopState.transitionToStep(Modes::MANUAL);
-      }
-      break;
-
-    default:
-      SerialLogging::info(("DEBUG: UNRECOGNIZED Loop Step: " + String(loopState.Step)).c_str());
-      break;
-    }
-  
-
-    checkActualGear();
-    updateGearNumberDigitalOutputs(shiftData.targetGear);
-    gearChangeReq = false;
-
-    if (DIAGNOSTIC_MODE == DiagnosticModes::UI && timeNowUs/1000 - lastUiUpdateMs > UI_UPDATE_RATE_MS)
-    {
-      updatePublishedDataChunk();
-      uint8_t id = 0;
-      lastUiUpdateMs = timeNowUs/1000;
-      //uint8_t dataLength = (MOTOR_DATA_SIZE * NUM_MOTORS + 2);
-      SerialLogging::publishData(publishedData, PACKET_SIZE, id);
-    }
-    SerialLogging::process();
+    resetReq = true && !prevResetReq;
+    prevResetReq = true;
   }
   else
   {
-    SerialLogging::process();
-    
+    resetReq = false;
+    prevResetReq = false;
   }
+
+  // AUTO ABORT IF ERROR
+  if (errors.present && loopState.Step >= int(Modes::RESETTING))
+  {
+    loopState.transitionToStep(Modes::ABORTING);
+  }
+  else if (resetReq && loopState.Step == int(Modes::IDLE))
+  {
+    // iSerial.setNewMode(Modes::RESETTING);
+  }
+
+  switch (loopState.Step)
+  {
+  case Modes::ABORTING:
+    loopState.StepDescription("ABORTING - turning all motors off");
+    turnAllOff();
+    loopState.transitionToStep(Modes::KILLED);
+    break;
+  case Modes::KILLED:
+    loopState.StepDescription("KILLED - all motors off");
+    if (loopState.FirstScan)
+    {
+      turnAllOff();
+    }
+
+    if (errors.present)
+    {
+      loopState.transitionToStep(Modes::ERROR);
+    }
+    else
+    {
+      loopState.transitionToStep(Modes::INACTIVE);
+    }
+
+    break;
+  case Modes::ERROR:
+    loopState.StepDescription("ERROR - handling error state");
+    shiftData.targetGear = 0;
+    isHomed = false;
+    if (loopState.FirstScan)
+    {
+      turnAllOff();
+    }
+    else
+    {
+      // auto clear the errors after 5 seconds
+      if (resetReq)
+      {
+        clearErrors();
+      }
+      if (!errors.present)
+      {
+        // iSerial.setNewMode(Modes::INACTIVE);
+        loopState.transitionToStep(Modes::INACTIVE);
+      }
+      if (loopState.getStepActiveTime() > 3000 && false)
+      {
+        Logger::error("ERROR: %s", errors.list[0].c_str());
+      }
+    }
+
+    break;
+  case Modes::INACTIVE:
+    loopState.StepDescription("INACTIVE - motors off, waiting for reset");
+    // turnAllOff();
+    if (OPERATING_MODE == OperatingModes::AUTO || OPERATING_MODE == OperatingModes::MANUAL_CLUTCH_ENGAGE)
+    {
+      if (!AUTO_RESET)
+      {
+        // iSerial.debugPrintln("Press both shift buttons to reset");
+      }
+
+      if (AUTO_RESET || (resetReq))
+      {
+        loopState.transitionToStep(Modes::RESETTING);
+      }
+    }
+    else
+    {
+      loopState.transitionToStep(Modes::MANUAL);
+    }
+    break;
+
+  case Modes::RESETTING:
+    loopState.StepDescription("RESETTING - performing homing routines");
+
+    // skip homing if already homed
+    if (isHomed)
+    {
+      // SerialLogging::info("RESETTING: already homed, skipping homing routine");
+      if (enableAllMotors())
+      {
+        loopState.transitionToStep(Modes::IDLE);
+      }
+    }
+    else
+    {
+      // SerialLogging::info("RESETTING: running homing routines");
+      //  runHomingRoutineClutchMotor(true);
+      // motors[Motors::CLUTCH].setDebug(true);
+      loopState.transitionToStep(51);
+    }
+    break;
+
+  case 51:
+    loopState.StepDescription("RESETTING - requesting clutch homing process");
+    // Initialize any variables or states needed before starting homing
+    // motors[Motors::CLUTCH].requestProcess(Motor::MotorProcesses::HOME);
+    if (loopState.FirstScan)
+    {
+      motors[Motors::CLUTCH].requestProcess(Motor::MotorProcesses::HOME);
+    }
+    else if (motors[Motors::CLUTCH].ActiveProcess == Motor::MotorProcesses::HOME && !motors[Motors::CLUTCH].isHomed)
+    {
+      loopState.transitionToStep(53);
+    }
+    else
+    {
+      triggerError("RESETTING: request clutch motor homing was rejected");
+    }
+    break;
+
+  case 53:
+    loopState.StepDescription("Waiting for clutch motor to finish homing");
+    // Wait for clutch motor to reach disengaged position
+    // SerialLogging::info("Clutch Motor State: %d", motors[Motors::CLUTCH].getState());
+    if (motors[Motors::CLUTCH].ActiveProcess == Motor::MotorProcesses::NONE_PROCESS && motors[Motors::CLUTCH].isHomed)
+    {
+      if (OPERATING_MODE == OperatingModes::MANUAL_CLUTCH_ENGAGE)
+      {
+        loopState.transitionToStep(Modes::MANUAL);
+      }
+      else
+      {
+        loopState.transitionToStep(55);
+      }
+    }
+    break;
+
+  case 55:
+    loopState.StepDescription("RESETTING - moving clutch to engaged pedaling position");
+    if (loopState.FirstScan)
+    {
+      // Start moving clutch to engaged position
+      motors[Motors::CLUTCH].moveAbs(POSITION_CLUTCH_PEDALING);
+    }
+
+    if (motors[Motors::CLUTCH].getState() == Motor::States::MOVING)
+    {
+      loopState.transitionToStep(56);
+    }
+    break;
+
+  case 56:
+    loopState.StepDescription("Waiting for clutch motor to reach pedaling position");
+    // Wait for clutch motor to reach engaged position
+    if (motors[Motors::CLUTCH].atPositionAndStill && motors[Motors::CLUTCH].getState() == Motor::States::IDLE)
+    {
+      setClutchRolloverPosition();
+      loopState.transitionToStep(60);
+    }
+
+    else if (loopState.getStepActiveTime() > 5000)
+    {
+      triggerError("RESETTING: Clutch motor did not reach pedaling position in time");
+    }
+    break;
+
+  case 60:
+    loopState.StepDescription("RESETTING - running homing routine for linear motors");
+    if (loopState.FirstScan)
+    {
+      runHomingRoutineLinearMotors(true);
+    }
+    else if (runHomingRoutineLinearMotors())
+    {
+      isHomed = true;
+      loopState.transitionToStep(Modes::IDLE);
+    }
+
+    break;
+
+  case Modes::IDLE:
+    loopState.StepDescription("IDLE - waiting for gear change request");
+    if (gearChangeReq)
+    {
+      processShiftReqNum(shiftTypeReq, shiftTargetGearParam);
+      // shiftStartTimeMs = timeNow;
+      loopState.transitionToStep(Modes::SHIFTING);
+    }
+    else if (!atTarget)
+    {
+      // triggerError(Errors::MOTOR_NOT_AT_TARGET_WHILE_IDLE);
+      Logger::info("linear motors not at target while in idle, adjust position now");
+      loopState.transitionToStep(Modes::SHIFTING);
+    }
+    else if (resetReq)
+    {
+      loopState.transitionToStep(Modes::RESETTING);
+    }
+
+    break;
+
+  case Modes::SHIFTING:
+    loopState.StepDescription("SHIFTING - processing gear shift");
+    if (loopState.FirstScan)
+    {
+      disengageClutch(true);
+    }
+    else
+    {
+      if (disengageClutch())
+      {
+        moveLinearMotorsToGear(shiftData.targetGear, true);
+        loopState.transitionToStep(210);
+      }
+    }
+    break;
+
+  case 210:
+    loopState.StepDescription("SHIFTING - moving linear motors to target gear");
+    disengageClutch();
+
+    if (moveLinearMotorsToGear(shiftData.targetGear) && atTarget)
+    {
+      loopState.transitionToStep(220);
+    }
+    else if (gearChangeReq)
+    {
+      processShiftReqNum(shiftTypeReq, shiftTargetGearParam);
+      // iSerial.resetModeTime();
+      // loopState.transitionToStep(1);
+    }
+
+    break;
+
+  case 220:
+    loopState.StepDescription("SHIFTING - engaging clutch");
+    if (loopState.FirstScan)
+    {
+      // digitalWrite(PIN_CLUTCH_SOL, !SOL_ON);
+      engageClutch(true);
+      // reset mode time
+    }
+    else if (engageClutch())
+    {
+      // shiftTimeMs = timeNow - shiftStartTimeMs;
+      loopState.transitionToStep(Modes::IDLE);
+    }
+    else if (loopState.getStepActiveTime() > 4000)
+    {
+      triggerError("SHIFTING: TOGGLE_MOTOR_ENGAGE_MOVE_TIMED_OUT");
+    }
+
+    break;
+
+  case Modes::MANUAL:
+    if (loopState.FirstScan)
+    {
+      disengageClutch(true);
+    }
+
+    switch (OPERATING_MODE)
+    {
+    case OperatingModes::MANUAL_CLUTCH_JOGGING:
+      loopState.StepDescription("MANUAL - clutch jogging - use up/down");
+      runMotorManualMode(Motors::CLUTCH);
+      break;
+    case OperatingModes::MANUAL_CLUTCH_ENGAGE:
+      if (inputs[Inputs::ShiftUpSw])
+      {
+        disengageClutch(true);
+        loopState.transitionToStep(1150);
+      }
+      break;
+    case OperatingModes::MANUAL_LINEAR_P:
+      loopState.StepDescription("MANUAL - linear P jogging - use up/down");
+      runMotorManualMode(Motors::LINEAR_P);
+      break;
+    case OperatingModes::MANUAL_LINEAR_S:
+      loopState.StepDescription("MANUAL - linear S jogging - use up/down");
+      runMotorManualMode(Motors::LINEAR_S);
+      break;
+    }
+
+    break;
+  case 1150:
+    loopState.StepDescription("waiting for clutch disengage");
+    if (disengageClutch() && inputs[Inputs::ShiftUpSw])
+    {
+      loopState.transitionToStep(1151);
+    }
+    break;
+
+  case 1151:
+    loopState.StepDescription("holding at disengage");
+    if (loopState.getStepActiveTime() > 2000)
+    {
+      engageClutch(true);
+      loopState.transitionToStep(1155);
+    }
+
+    break;
+
+  case 1155:
+    loopState.StepDescription("waiting for clutch engage");
+    if (engageClutch())
+    {
+      loopState.transitionToStep(1156);
+    }
+    break;
+
+  case 1156:
+    loopState.StepDescription("re-engaged");
+    if (loopState.getStepActiveTime() > 2000)
+    {
+      disengageClutch(true);
+      loopState.transitionToStep(Modes::MANUAL);
+    }
+    break;
+
+  default:
+    Logger::info(("DEBUG: UNRECOGNIZED Loop Step: " + String(loopState.Step)).c_str());
+    break;
+  }
+
+  checkActualGear();
+  updateGearNumberDigitalOutputs(shiftData.targetGear);
+  gearChangeReq = false;
+}
+
+bool updateEveryOtherScan = false;
+void updateISR()
+{
+  // Serial.println("update");
+  timeNowUs = micros();
+  updateMotors();
+  // SCAN TIME MONITOR
+  if (timeNowUs - lastMotorUpdateUs > motorUpdateScanTimeUs)
+  {
+    motorUpdateScanTimeUs = timeNowUs - lastMotorUpdateUs;
+  }
+
+  lastMotorUpdateUs = timeNowUs;
+  if (motorId == NUM_MOTORS - 1)
+  {
+
+    runDimitri();
+    switch (DIAGNOSTIC_MODE)
+    {
+    case DiagnosticModes::UI:
+      if (timeNowUs / 1000 - lastUiUpdateMs > UI_UPDATE_RATE_MS)
+      {
+        updateDimitriPacket();
+        lastUiUpdateMs = timeNowUs / 1000;
+        Logger::publishPacket(publishedData, getPacketSize(Packets::DIMITRI), Packets::DIMITRI);
+      }
+      break;
+    case DiagnosticModes::CSV:
+      // build clutch motor csv using motor position, velocity, power
+      if (!csvHeaderWritten)
+      {
+        String csvHeader = "Time, Clutch Position, Velocity, Power";
+        Logger::csv(csvHeader.c_str());
+        csvHeaderWritten = true;
+      }
+      csvUpdateCycleCount++;
+
+      if (csvUpdateCycleCount >= CSV_UPDATE_RATE_CYCLES)
+      {
+        csvUpdateCycleCount = 0;
+        String csvLine = "";
+        csvLine += String(motorUpdateScanTimeUs) + ",";
+        motorUpdateScanTimeUs = 0;
+        csvLine += String(motors[Motors::CLUTCH].actualPosition) + ",";
+        csvLine += String(motors[Motors::CLUTCH].actualVelocity) + ",";
+        csvLine += String(motors[Motors::CLUTCH].getOutputPower());
+        Logger::csv(csvLine.c_str());
+      }
+      break;
+    }
+  }
+}
+
+void loop()
+{
+  // NOTE: updateISR() runs every 400us via timer interrupt
+  Logger::process();
 }

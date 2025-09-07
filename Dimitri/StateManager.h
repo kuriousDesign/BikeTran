@@ -1,8 +1,8 @@
-#ifndef STATE_MANAGER_H
-#define STATE_MANAGER_H
+#pragma once
 
 #include <Arduino.h>
-#include "SerialLogging.h"
+//#include "SerialLogging.h"
+#include "FastLogger.h"
 
 class StateManager
 {
@@ -42,7 +42,7 @@ public:
             if (_debugEnabled)
             {
                 //Serial.println(_name + " Step: " + _step);// + " - " + _stepDescription);
-                SerialLogging::info("%s Step: %d - %s", _name.c_str(), _step, _stepDescription.c_str());
+                Logger::info("%s Step: %d - %s", _name.c_str(), _step, _stepDescription.c_str());
                 //SerialLogging::info("%s Step: %d", _name.c_str(), _step);
             }
         }
@@ -61,7 +61,7 @@ public:
         {
             // add  state value to end of error message with hyphen
             String fullMsg = String(msg) + " - State: " + String(_step);
-            SerialLogging::error(fullMsg.c_str());
+            Logger::error(fullMsg.c_str());
         }
         _errorsPresent = true;
     }
@@ -99,5 +99,3 @@ public:
         return millis() - _stepStartTime;
     }
 };
-
-#endif // STATE_MANAGER_H

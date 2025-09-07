@@ -1,8 +1,4 @@
-// this purpose of this file is to hold configuration constants and settings
-// that are used in multiple files
-
-#ifndef CFG_H
-#define CFG_H
+#pragma once
 
 #include <Arduino.h>
 #include "CustomDataTypes.h"
@@ -179,5 +175,3 @@ Motor motors[NUM_MOTORS] = {
     Motor(PIN_CLUTCH_DIR_IN1, PIN_CLUTCH_PWM, &encoders[Motors::CLUTCH], &motorCfgs[Motors::CLUTCH], SIM_MODE, PIN_CLUTCH_DIR_IN2, PIN_CLUTCH_NEG_LIM),
     Motor(PIN_LINEAR_P_DIR, PIN_LINEAR_P_PWM, &encoders[Motors::LINEAR_P], &motorCfgs[Motors::LINEAR_P], SIM_MODE),
     Motor(PIN_LINEAR_S_DIR, PIN_LINEAR_S_PWM, &encoders[Motors::LINEAR_S], &motorCfgs[Motors::LINEAR_S], SIM_MODE)};
-
-#endif // CFG_H

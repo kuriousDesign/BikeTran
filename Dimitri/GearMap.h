@@ -1,5 +1,4 @@
-#ifndef GEARMAP_H
-#define GEARMAP_H
+#pragma once
 
 #define NUM_GEARS 15
 
@@ -41,5 +40,3 @@ public:
     }
     
 };
-
-#endif

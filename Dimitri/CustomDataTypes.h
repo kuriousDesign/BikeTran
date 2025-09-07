@@ -1,5 +1,4 @@
-#ifndef CUSTOMDATATYPES_H
-#define CUSTOMDATATYPES_H
+#pragma once
 
 #include <Arduino.h>
 
@@ -26,6 +25,9 @@ enum OperatingModes : uint8_t //
   LINEAR_P_HOMING = 6,
   LINEAR_S_HOMING = 7,
 };
+
+
+
 
 String getOperatingModeToString(OperatingModes mode)
 {
@@ -58,6 +60,7 @@ enum DiagnosticModes
 {
   UI = 0,
   SERIAL_OUTPUT = 1,
+  CSV = 2,
 };
 
 enum Events : int
@@ -134,6 +137,3 @@ struct CmdData
 {
 
 };
-
-
-#endif

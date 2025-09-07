@@ -8,7 +8,7 @@
 #include <string.h>       // For strlen, memmove, memcpy
 #include <avr/interrupt.h> // For noInterrupts()/interrupts() (redundant with Arduino.h, but harmless)
 
-class SerialLogging {
+class Logger {
 private:
   static const size_t BYTE_BUFFER_SIZE = 2048/2;  // Total bytes in custom ring buffer (power of 2 for modulo efficiency)
   static uint8_t queue[BYTE_BUFFER_SIZE];       // Static byte array for the ring buffer

@@ -1,5 +1,4 @@
-#ifndef SHIFTER_H
-#define SHIFTER_H
+#pragma once
 
 #include <Arduino.h>
 #include "StickyInput.h"
@@ -84,5 +83,3 @@ private:
     StickyInput si_down;
     StickyInput si_up;
 };
-
-#endif

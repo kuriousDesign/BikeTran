@@ -1,10 +1,10 @@
-#ifndef MOTOR_H
-#define MOTOR_H
+#pragma once
 
 #include <Arduino.h>
 #include <Encoder.h>
 // #include <TimerOne.h>
 #include "StateManager.h"
+//#include "FastLogger.h"
 
 #define NUM_FILTER_POINTS 5
 
@@ -16,9 +16,10 @@ struct MotorData
     float targetPosition;
     uint8_t activeProcess;
     int16_t processStep;
+    int16_t outputPower;
 };
 
-#define MOTOR_DATA_SIZE 17 //i think this is 17 bytes
+#define MOTOR_DATA_SIZE 19 
 
 class Motor
 {
@@ -201,5 +202,3 @@ private:
     void debugPrintln(String msg);
     double _deltaPulses = 0;
 };
-
-#endif // MOTOR_H

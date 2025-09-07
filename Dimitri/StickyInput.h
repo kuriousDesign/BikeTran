@@ -1,5 +1,4 @@
-#ifndef STICKYINPUT_H
-#define STICKYINPUT_H
+#pragma once
 
 class StickyInput
 {
@@ -54,5 +53,3 @@ public:
         return output;
     };
 };
-
-#endif
