@@ -110,7 +110,7 @@ public:
     bool zero();
     bool setPosition(double position);
     bool enable();
-    bool moveAbs(double position);
+    bool moveAbs(double position, bool holdPosWhenDone = false);
     bool jogUsingPower(double powerPercent); // dir: -1 for negative, 1 for positive
     bool stop();
     bool disable();
@@ -138,6 +138,7 @@ private:
     bool _moveAbsReq = false;
     bool _jogReq = false;
     bool _holdReq = false;
+    bool _holdPosWhenDone = false;
     bool _zeroReq = false;
     bool _enableReq = false;
     bool _disableReq = false;

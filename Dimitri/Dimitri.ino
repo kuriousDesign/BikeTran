@@ -1,4 +1,4 @@
-#define VERSION_NUMBER 48
+#define VERSION_NUMBER 53
 constexpr int LOOP_UPDATE_RATE_US = 1200; // main loop update rate (1065us is about the fastest it can go with current code)
 #define UI_UPDATE_RATE_MS 100
 #define CSV_UPDATE_RATE_CYCLES 2 //
@@ -20,10 +20,9 @@ constexpr int LOOP_UPDATE_RATE_US = 1200; // main loop update rate (1065us is ab
 constexpr float CONTROL_FREQ_HZ = 1e6 * NUM_MOTORS / LOOP_UPDATE_RATE_US; // motor control update frequency
 constexpr float CONTROL_PERIOD_US = 1e6 / CONTROL_FREQ_HZ;
 
-
 // OPERATING MODES: IO_CHECKOUT, MANUAL_CLUTCH_JOGGING, MANUAL_CLUTCH_ENGAGE, MANUAL_LINEAR_P, MANUAL_LINEAR_S, AUTO
 const OperatingModes OPERATING_MODE = OperatingModes::MANUAL_CLUTCH_ENGAGE; // set to OperatingModes::AUTO to run the system in debug mode
-const DiagnosticModes DIAGNOSTIC_MODE = DiagnosticModes::UI;               // set to DiagnosticModes::SERIAL_OUTPUT to output diagnostic data over serial, otherwise UI mode
+const DiagnosticModes DIAGNOSTIC_MODE = DiagnosticModes::UI;                // set to DiagnosticModes::SERIAL_OUTPUT to output diagnostic data over serial, otherwise UI mode
 
 const unsigned long DELAY_LINEAR_MOTION_AFTER_CLUTCH_REACHES_SHIFT_POSITION_MS = 200; // ms, time to wait after clutch reaches shifting position before linear motor motion is allowed
 
@@ -183,7 +182,7 @@ bool disengageClutch(bool reset = false)
 
     case 10:
       clutchDeviceState.StepDescription("move to shift pos");
-      motors[Motors::CLUTCH].moveAbs(POSITION_CLUTCH_SHIFTING);
+      motors[Motors::CLUTCH].moveAbs(POSITION_CLUTCH_SHIFTING,true);
 
       if (motors[Motors::CLUTCH].getState() == Motor::States::MOVING)
       {
@@ -193,7 +192,7 @@ bool disengageClutch(bool reset = false)
 
     case 11:
       clutchDeviceState.StepDescription("wait to reach pos");
-      if (motors[Motors::CLUTCH].getState() == Motor::States::IDLE)
+      if (motors[Motors::CLUTCH].getState() == Motor::States::HOLD_POSITION)
       {
         motors[Motors::CLUTCH].hold_position();
         clutchDeviceState.transitionToStep(20);
@@ -236,6 +235,7 @@ bool engageClutch(bool reset = false)
       clutchDeviceState.StepDescription("check start pos");
       if (abs(motors[Motors::CLUTCH].actualPosition - POSITION_CLUTCH_SHIFTING) < 5.0)
       {
+        motors[Motors::CLUTCH].stop();
         clutchDeviceState.transitionToStep(1);
       }
       else
@@ -300,8 +300,8 @@ bool engageClutch(bool reset = false)
       break;
 
     case 1000:
-      clutchDeviceState.StepDescription("done: now holding pos");
-      motors[Motors::CLUTCH].hold_position();
+      clutchDeviceState.StepDescription("done");
+      //motors[Motors::CLUTCH].hold_position();
       return true;
       break;
 
@@ -315,7 +315,7 @@ bool engageClutch(bool reset = false)
 // Sets the clutch motor position to the nearest rollover position around 0
 bool setClutchRolloverPosition()
 {
-  double newPosition = fmod(motors[Motors::CLUTCH].actualPosition, 360.0);
+  double newPosition = fmod(motors[Motors::CLUTCH].actualPosition - 360.0, 360.0);
   motors[Motors::CLUTCH].setPosition(newPosition);
   return true;
 }
@@ -823,6 +823,10 @@ void updateDimitriPacket()
     inputByte |= (inputs[i] ? 1 : 0) << i;
   }
   publishedData[size++] = inputByte;
+
+  loopStepInt16 = static_cast<int16_t>(clutchDeviceState.Step);
+  publishedData[size++] = static_cast<byte>(loopStepInt16 & 0xFF);        // LSB
+  publishedData[size++] = static_cast<byte>((loopStepInt16 >> 8) & 0xFF); // MSB
 }
 // sets the digital outputs for the gear number to be received by the display device
 void updateGearNumberDigitalOutputs(int num)
@@ -1180,12 +1184,43 @@ void runDimitri()
       triggerError("RESETTING: request clutch motor homing was rejected");
     }
     break;
-
   case 53:
     loopState.StepDescription("Waiting for clutch motor to finish homing");
     // Wait for clutch motor to reach disengaged position
     // SerialLogging::info("Clutch Motor State: %d", motors[Motors::CLUTCH].getState());
     if (motors[Motors::CLUTCH].ActiveProcess == Motor::MotorProcesses::NONE_PROCESS && motors[Motors::CLUTCH].isHomed)
+    {
+      loopState.transitionToStep(54);
+    }
+    break;
+  case 54:
+    loopState.StepDescription("moving to clutch motor to engaged position");
+    // Wait for clutch motor to reach disengaged position
+    // SerialLogging::info("Clutch Motor State: %d", motors[Motors::CLUTCH].getState());
+    if (loopState.FirstScan)
+    {
+      // Start moving clutch to disengaged position
+      motors[Motors::CLUTCH].moveAbs(POSITION_CLUTCH_PEDALING);
+    }
+    else if (motors[Motors::CLUTCH].getState() == Motor::States::MOVING)
+    {
+      loopState.transitionToStep(55);
+    }
+    break;
+
+  case 55:
+    loopState.StepDescription("waiting for clutch motor to finish moving to engaged");
+    if (motors[Motors::CLUTCH].getState() == Motor::States::IDLE)
+    {
+      loopState.transitionToStep(56);
+    }
+    break;
+
+  case 56:
+    loopState.StepDescription("Waiting for clutch motor to move to 0deg");
+    // Wait for clutch motor to reach disengaged position
+    // SerialLogging::info("Clutch Motor State: %d", motors[Motors::CLUTCH].getState());
+    if (motors[Motors::CLUTCH].getState() == Motor::States::IDLE)
     {
       if (OPERATING_MODE == OperatingModes::MANUAL_CLUTCH_ENGAGE)
       {
@@ -1193,12 +1228,12 @@ void runDimitri()
       }
       else
       {
-        loopState.transitionToStep(55);
+        loopState.transitionToStep(57);
       }
     }
     break;
 
-  case 55:
+  case 57:
     loopState.StepDescription("RESETTING - moving clutch to engaged pedaling position");
     if (loopState.FirstScan)
     {
@@ -1208,11 +1243,11 @@ void runDimitri()
 
     if (motors[Motors::CLUTCH].getState() == Motor::States::MOVING)
     {
-      loopState.transitionToStep(56);
+      loopState.transitionToStep(58);
     }
     break;
 
-  case 56:
+  case 58:
     loopState.StepDescription("Waiting for clutch motor to reach pedaling position");
     // Wait for clutch motor to reach engaged position
     if (motors[Motors::CLUTCH].atPositionAndStill && motors[Motors::CLUTCH].getState() == Motor::States::IDLE)
@@ -1347,7 +1382,7 @@ void runDimitri()
     break;
   case 1150:
     loopState.StepDescription("waiting for clutch disengage");
-    if (disengageClutch() && inputs[Inputs::ShiftUpSw])
+    if (disengageClutch())
     {
       loopState.transitionToStep(1151);
     }

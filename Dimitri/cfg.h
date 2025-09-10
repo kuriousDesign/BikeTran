@@ -91,7 +91,7 @@ const double LinearKd = 0.0;
 uint16_t LinearNudgeTimeMs = 5; // 15
 const double LinearNudgePower = 80.0;
 const double POSITION_CLUTCH_PEDALING = 0.0;   // deg
-const double POSITION_CLUTCH_SHIFTING = 228.0; // deg
+const double POSITION_CLUTCH_SHIFTING = 192.0; // deg
 const double LINEAR_P_HOME_OFFSET = 6.3;       // units is gears, distance (measured in gears) to move away from limit switch in order to be in 1st Gear
 const double LINEAR_S_HOME_OFFSET = 0.3;       // units is gears, distance (measured in gears) to move away from limit switch in order to be in 1st Gear
 

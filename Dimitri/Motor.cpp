@@ -146,6 +146,8 @@ void Motor::run()
         else if (_holdReq)
         {
             _nextState = States::HOLD_POSITION;
+        } else{
+            _holdPosWhenDone = false;
         }
 
         break;
@@ -174,7 +176,12 @@ void Motor::run()
         }
         else if (_atPositionAndStill)
         {
-            _nextState = States::IDLE;
+            if(_holdPosWhenDone) {
+                _nextState = States::HOLD_POSITION;
+                _holdPosWhenDone = false;
+            } else {
+                _nextState = States::IDLE;
+            }
         }
         else
         {
@@ -183,10 +190,15 @@ void Motor::run()
         break;
     case States::HOLD_POSITION:
         _outputPower = pdControl();
+        if (_stopReq)
+        {
+            _nextState = States::STOPPING;
+        }
         break;
 
     case States::STOPPING:
         targetPower = 0.0;
+         _holdPosWhenDone = false;
         _outputPower = 0.0; // TODO: add deceleration based on cfg params and current velocity
         if (_jogReq)
         {
@@ -425,7 +437,7 @@ bool Motor::homeToSwitch(int8_t searchDir, Sensors sensorId, bool reset)
             break;
         case 30:
             processState.StepDescription("Going to trigger sensor and record position");
-            jogUsingPower(-searchDir * _cfg->homingPwr * 1.0);
+            jogUsingPower(-searchDir * _cfg->homingPwr * 0.7);
             if (sensorState)
             {
                 debugPrintln("recorded position");
@@ -534,12 +546,16 @@ void Motor::reconditionFilteredData(double diff)
     }
 }
 
-bool Motor::moveAbs(double position)
+bool Motor::moveAbs(double position, bool holdPosWhenDone)
 {
     if (_state == States::IDLE || _state == States::MOVING)
     {
         targetPosition = position;
         _moveAbsReq = true;
+        if (holdPosWhenDone)
+        {
+            _holdPosWhenDone = true;
+        }
         return true;
     }
     return false;
@@ -563,6 +579,7 @@ bool Motor::jogUsingPower(double powerPercent)
 bool Motor::stop()
 {
     _stopReq = true;
+    _holdPosWhenDone = false;
     // set other requests to false
     _moveAbsReq = false;
     _jogReq = false;
@@ -591,7 +608,7 @@ bool Motor::hold_position()
 {
     if (_state != States::KILLED)
     {
-        targetPosition = actualPosition;
+        //targetPosition = actualPosition;
         _holdReq = true;
         return true;
     }
